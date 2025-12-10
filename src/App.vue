@@ -25,7 +25,6 @@
         Analiz
       </button>
 
-      <!-- YENİ TAB: Firebase -->
       <button
         class="tab-btn"
         :class="{ active: activeTab === 'sync' }"
@@ -37,39 +36,108 @@
   </div>
 
   <div class="page-wrapper">
-    <Members v-if="activeTab === 'members'" :users="users" />
+    <!-- Üyeler TAB: tablo + detay -->
+    <div v-if="activeTab === 'members'">
+      <div v-if="isLoadingUsers" class="info-banner">
+        Kullanıcılar yükleniyor...
+      </div>
+
+      <div v-else-if="usersError" class="error-banner">
+        {{ usersError }}
+      </div>
+
+      <div
+        v-else
+        class="members-layout"
+      >
+        <Members
+          :users="users"
+          @select-user="selectedUser = $event"
+        />
+
+        <MemberDetail :user="selectedUser" />
+      </div>
+    </div>
+
+    <!-- Diğer tablar -->
     <Upload v-if="activeTab === 'upload'" />
     <Analysis v-if="activeTab === 'analysis'" :users="users" />
-
-    <!-- Firebase Yükleme TAB İÇERİĞİ -->
     <SyncUpload v-if="activeTab === 'sync'" />
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref } from "vue"
+import { ref, onMounted } from "vue"
+import {
+  collection,
+  getDocs,
+  orderBy,
+  query,
+  limit,
+} from "firebase/firestore"
 
-import Members, { UserReport } from "./components/tabs/Members.vue";
-import Upload from "./components/tabs/Upload.vue";
-import Analysis from "./components/tabs/Analysis.vue";
-import SyncUpload from "./components/tabs/SyncUpload.vue";
+import Members, { UserReport } from "./components/tabs/Members.vue"
+import Upload from "./components/tabs/Upload.vue"
+import Analysis from "./components/tabs/Analysis.vue"
+import SyncUpload from "./components/tabs/SyncUpload.vue"
+import MemberDetail from "./components/tabs/MemberDetail.vue"
+import { db } from "./firebase"
 
-import rawUsers from "./10.12.2025.json"
-
-const users = rawUsers as UserReport[]
-
+const users = ref<UserReport[]>([])
+const isLoadingUsers = ref(true)
+const usersError = ref<string | null>(null)
+const selectedUser = ref<UserReport | null>(null)
 const activeTab = ref<"members" | "upload" | "analysis" | "sync">("members")
+
+// Firestore'dan en son güne ait user listesini çek
+const loadLatestUsers = async () => {
+  isLoadingUsers.value = true
+  usersError.value = null
+  users.value = []
+  selectedUser.value = null
+
+  try {
+    // dailyUsers koleksiyonundan en son tarihi bul
+    const daysCol = collection(db, "dailyUsers")
+    const q = query(daysCol, orderBy("date", "desc"), limit(1))
+    const snap = await getDocs(q)
+
+    if (snap.empty) {
+      usersError.value = "Firebase'de hiç günlük kullanıcı datası bulunamadı."
+      return
+    }
+
+    const latestDoc = snap.docs[0] // en son gün
+    const usersCol = collection(latestDoc.ref, "users")
+    const usersSnap = await getDocs(usersCol)
+
+    const result: UserReport[] = []
+    usersSnap.forEach((docSnap) => {
+      result.push(docSnap.data() as UserReport)
+    })
+
+    users.value = result
+
+    // varsayılan olarak ilk kullanıcıyı seç
+    if (result.length > 0) {
+      selectedUser.value = result[0]
+    }
+  } catch (err: any) {
+    console.error(err)
+    usersError.value =
+      "Kullanıcı listesi alınırken hata oluştu: " + (err?.message ?? String(err))
+  } finally {
+    isLoadingUsers.value = false
+  }
+}
+
+onMounted(() => {
+  void loadLatestUsers()
+})
 </script>
 
 <style scoped>
-.page-wrapper {
-  width: 100%;
-  min-width: 100%;
-  padding: 16px 0;
-  box-sizing: border-box;
-}
-
-/* TAB BAR: EKRANA SABİT, İÇERİKTEN TAMAMEN BAĞIMSIZ */
+/* TAB BAR: EKRANA SABİT */
 .tabs-container {
   position: fixed;
   top: 16px;
@@ -97,12 +165,26 @@ const activeTab = ref<"members" | "upload" | "analysis" | "sync">("members")
   box-sizing: border-box;
 }
 
+/* SAYFA İÇERİĞİ */
 .page-wrapper {
   width: 100%;
   max-width: 1400px;
   margin: 0 auto;
   padding: 100px 16px 16px;
   box-sizing: border-box;
+}
+
+/* Members + Detay yan yana layout */
+.members-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 2fr) minmax(0, 1.3fr);
+  gap: 16px;
+}
+
+@media (max-width: 1024px) {
+  .members-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }
 
 .tab-btn {
@@ -128,6 +210,27 @@ const activeTab = ref<"members" | "upload" | "analysis" | "sync">("members")
   color: white;
   box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3);
   font-weight: 600;
+}
+
+/* Info / error banner */
+.info-banner,
+.error-banner {
+  margin-bottom: 12px;
+  padding: 8px 12px;
+  border-radius: 10px;
+  font-size: 0.85rem;
+}
+
+.info-banner {
+  background: rgba(37, 99, 235, 0.1);
+  border: 1px solid rgba(59, 130, 246, 0.4);
+  color: #bfdbfe;
+}
+
+.error-banner {
+  background: rgba(220, 38, 38, 0.1);
+  border: 1px solid rgba(248, 113, 113, 0.5);
+  color: #fecaca;
 }
 
 @keyframes fadeIn {

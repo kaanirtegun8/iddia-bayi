@@ -52,7 +52,12 @@
           </tr>
         </thead>
         <tbody>
-          <tr v-for="user in paginatedUsers" :key="user.memberId">
+          <tr
+            v-for="user in paginatedUsers"
+            :key="user.memberId"
+            class="row-clickable"
+            @click="onRowClick(user)"
+          >
             <td>{{ user.memberId }}</td>
             <td>{{ user.phoneNumber }}</td>
             <td>
@@ -152,6 +157,10 @@ const props = defineProps<{
   users: UserReport[]
 }>()
 
+const emit = defineEmits<{
+  (e: "select-user", user: UserReport): void
+}>()
+
 const users = computed(() => props.users ?? [])
 
 // search state
@@ -168,14 +177,15 @@ const filteredUsers = computed(() => {
 
   return users.value.filter((u) => {
     const phone = (u.phoneNumber ?? "").toLowerCase()
-    return phone.includes(q)
+    const memberIdStr = String(u.memberId ?? "").toLowerCase()
+    return phone.includes(q) || memberIdStr.includes(q)
   })
 })
 
 const totalPages = computed(() =>
   filteredUsers.value.length === 0
     ? 1
-    : Math.ceil(filteredUsers.value.length / pageSize.value)
+    : Math.ceil(filteredUsers.value.length / pageSize.value),
 )
 
 const paginatedUsers = computed(() => {
@@ -196,7 +206,7 @@ watch(
     if (currentPage.value > totalPages.value) {
       currentPage.value = totalPages.value
     }
-  }
+  },
 )
 
 // search değiştikçe başa dön
@@ -212,6 +222,10 @@ function formatDate(dateStr: string | null): string {
   const month = (d.getMonth() + 1).toString().padStart(2, "0")
   const year = d.getFullYear()
   return `${day}.${month}.${year}`
+}
+
+function onRowClick(user: UserReport) {
+  emit("select-user", user)
 }
 </script>
 
@@ -322,6 +336,10 @@ tbody tr:hover {
 
 td {
   border-bottom: 1px solid #111827;
+}
+
+.row-clickable {
+  cursor: pointer;
 }
 
 .empty-row {
