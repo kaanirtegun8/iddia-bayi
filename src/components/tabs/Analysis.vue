@@ -24,32 +24,21 @@
           <label>Tek Dosya Seç</label>
           <select v-model="selectedFileId">
             <option value="" disabled>Dosya seçiniz...</option>
-            <option
-              v-for="file in files"
-              :key="file.id"
-              :value="file.id"
-            >
+            <option v-for="file in files" :key="file.id" :value="file.id">
               {{ file.fileName }} ({{ file.rowCount }} satır)
             </option>
           </select>
         </div>
 
         <div class="buttons-col">
-          <button
-            class="btn primary"
-            :disabled="!selectedFileId || loadingAnalysis || files.length === 0"
-            @click="runSingleFileAnalysis"
-          >
+          <button class="btn primary" :disabled="!selectedFileId || loadingAnalysis || files.length === 0"
+            @click="runSingleFileAnalysis">
             {{ loadingAnalysis && analysisMode === 'single'
               ? 'Seçili dosya analiz ediliyor...'
               : 'Seçili Dosyada Analiz Yap' }}
           </button>
 
-          <button
-            class="btn ghost"
-            :disabled="loadingAnalysis || files.length === 0"
-            @click="runAllFilesAnalysis"
-          >
+          <button class="btn ghost" :disabled="loadingAnalysis || files.length === 0" @click="runAllFilesAnalysis">
             {{ loadingAnalysis && analysisMode === 'all'
               ? 'Tüm dosyalar analiz ediliyor...'
               : 'Tüm Dosyalarda Analiz Yap' }}
@@ -61,7 +50,8 @@
         Henüz analiz edilecek bir Excel dosyası yok. Önce <strong>Dosya Ekleme</strong> sekmesinden rapor yükleyin.
       </p>
       <p v-else class="hint">
-        Toplam <strong>{{ files.length }}</strong> dosya yüklü. Dilersen tek dosya, dilersen tüm dosyalar üzerinden analiz yapabilirsin.
+        Toplam <strong>{{ files.length }}</strong> dosya yüklü. Dilersen tek dosya, dilersen tüm dosyalar üzerinden
+        analiz yapabilirsin.
       </p>
     </div>
 
@@ -98,11 +88,7 @@
               <td>{{ formatAmount(row.totalAmount) }}</td>
               <td>{{ row.operations }}</td>
               <td class="files-cell">
-                <span
-                  v-for="name in row.files"
-                  :key="name"
-                  class="file-pill"
-                >
+                <span v-for="name in row.files" :key="name" class="file-pill">
                   {{ name }}
                 </span>
               </td>
@@ -112,10 +98,7 @@
       </div>
     </div>
 
-    <div
-      v-else-if="analysisDone && !loadingAnalysis"
-      class="card empty-card"
-    >
+    <div v-else-if="analysisDone && !loadingAnalysis" class="card empty-card">
       <p>
         Analiz tamamlandı fakat
         <strong>bizden ayrılmış kullanıcı bulunamadı.</strong><br />
@@ -178,15 +161,21 @@ const totalAmount = computed(() =>
   results.value.reduce((sum, r) => sum + r.totalAmount, 0)
 )
 
-// Mevcut üyelerden last4 set'i oluştur
-const memberLast4Set = computed(() => {
+const PHONE_PREFIX_LENGTH = 4
+
+const memberPhoneSignatureSet = computed(() => {
   const set = new Set<string>()
+
   for (const u of props.users || []) {
     const digits = (u.phoneNumber ?? "").replace(/\D/g, "")
-    if (digits.length >= 4) {
-      set.add(digits.slice(-4))
+
+    if (digits.length >= PHONE_PREFIX_LENGTH + 4) {
+      const prefix = digits.slice(0, PHONE_PREFIX_LENGTH)
+      const last4 = digits.slice(-4)
+      set.add(`${prefix}-${last4}`)
     }
   }
+
   return set
 })
 
@@ -230,34 +219,42 @@ const analyzeFiles = (targetFiles: ExcelFile[]): Candidate[] => {
   const map = new Map<string, Candidate>()
 
   for (const file of targetFiles) {
-    for (const entry of file.entries || []) {
-      if (!entry.last4) continue
+  for (const entry of file.entries || []) {
+    if (!entry.last4) continue
 
-      // Bu last4 bizim mevcut üyelerimizden birine aitse -> SKIP
-      if (memberLast4Set.value.has(entry.last4)) continue
+    const digits = (entry.phone ?? "").replace(/\D/g, "")
 
-      const phone = entry.phone || "Bilinmiyor"
-      const key = `${entry.last4}|${phone}`
+    if (digits.length >= PHONE_PREFIX_LENGTH) {
+      const prefix = digits.slice(0, PHONE_PREFIX_LENGTH)
+      const signature = `${prefix}-${entry.last4}`
 
-      if (!map.has(key)) {
-        map.set(key, {
-          key,
-          last4: entry.last4,
-          phone,
-          totalAmount: 0,
-          operations: 0,
-          files: []
-        })
-      }
-
-      const item = map.get(key)!
-      item.totalAmount += Number(entry.amount ?? 0)
-      item.operations += 1
-      if (!item.files.includes(file.fileName)) {
-        item.files.push(file.fileName)
+      if (memberPhoneSignatureSet.value.has(signature)) {
+        continue
       }
     }
+
+    const phone = entry.phone || "Bilinmiyor"
+    const key = `${entry.last4}|${phone}`
+
+    if (!map.has(key)) {
+      map.set(key, {
+        key,
+        last4: entry.last4,
+        phone,
+        totalAmount: 0,
+        operations: 0,
+        files: []
+      })
+    }
+
+    const item = map.get(key)!
+    item.totalAmount += Number(entry.amount ?? 0)
+    item.operations += 1
+    if (!item.files.includes(file.fileName)) {
+      item.files.push(file.fileName)
+    }
   }
+}
 
   return Array.from(map.values()).sort(
     (a, b) => b.totalAmount - a.totalAmount

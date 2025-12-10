@@ -168,8 +168,7 @@ const filteredUsers = computed(() => {
 
   return users.value.filter((u) => {
     const phone = (u.phoneNumber ?? "").toLowerCase()
-    const memberIdStr = u.memberId?.toString() ?? ""
-    return phone.includes(q) || memberIdStr.includes(q)
+    return phone.includes(q)
   })
 })
 
