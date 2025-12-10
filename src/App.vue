@@ -24,6 +24,15 @@
       >
         Analiz
       </button>
+
+      <!-- YENİ TAB: Firebase -->
+      <button
+        class="tab-btn"
+        :class="{ active: activeTab === 'sync' }"
+        @click="activeTab = 'sync'"
+      >
+        Firebase Yükleme
+      </button>
     </div>
   </div>
 
@@ -31,6 +40,9 @@
     <Members v-if="activeTab === 'members'" :users="users" />
     <Upload v-if="activeTab === 'upload'" />
     <Analysis v-if="activeTab === 'analysis'" :users="users" />
+
+    <!-- Firebase Yükleme TAB İÇERİĞİ -->
+    <SyncUpload v-if="activeTab === 'sync'" />
   </div>
 </template>
 
@@ -40,12 +52,13 @@ import { ref } from "vue"
 import Members, { UserReport } from "./components/tabs/Members.vue";
 import Upload from "./components/tabs/Upload.vue";
 import Analysis from "./components/tabs/Analysis.vue";
+import SyncUpload from "./components/tabs/SyncUpload.vue";
 
-import rawUsers from "./users.json"
+import rawUsers from "./10.12.2025.json"
 
 const users = rawUsers as UserReport[]
 
-const activeTab = ref<"members" | "upload" | "analysis">("members")
+const activeTab = ref<"members" | "upload" | "analysis" | "sync">("members")
 </script>
 
 <style scoped>
@@ -65,12 +78,12 @@ const activeTab = ref<"members" | "upload" | "analysis">("members")
   display: flex;
   justify-content: center;
   z-index: 100;
-  pointer-events: none; /* altındaki şeylere tıklamayı engellemesin diye */
+  pointer-events: none;
 }
 
 .tabs {
   pointer-events: auto;
-  width: min(900px, 100% - 32px); /* sabit, şık bir genişlik */
+  width: min(900px, 100% - 32px);
   display: flex;
   gap: 8px;
   padding: 6px;
@@ -84,16 +97,14 @@ const activeTab = ref<"members" | "upload" | "analysis">("members")
   box-sizing: border-box;
 }
 
-/* SAYFA İÇERİĞİ: TAB BARI ALTINDAN BAŞLASIN */
 .page-wrapper {
   width: 100%;
   max-width: 1400px;
   margin: 0 auto;
-  padding: 100px 16px 16px; /* üstte boşluk bıraktık ki fixed bar ile çakışmasın */
+  padding: 100px 16px 16px;
   box-sizing: border-box;
 }
 
-/* TAB BUTTON */
 .tab-btn {
   flex: 1;
   padding: 10px 14px;
@@ -112,7 +123,6 @@ const activeTab = ref<"members" | "upload" | "analysis">("members")
   color: #fff;
 }
 
-/* ACTIVE TAB */
 .tab-btn.active {
   background: linear-gradient(135deg, #4f46e5, #6366f1);
   color: white;
@@ -120,7 +130,6 @@ const activeTab = ref<"members" | "upload" | "analysis">("members")
   font-weight: 600;
 }
 
-/* İÇERİK ANİMASYONU – İSTERSEN KALSIN */
 @keyframes fadeIn {
   from { opacity: 0; transform: translateY(4px); }
   to   { opacity: 1; transform: translateY(0px); }
