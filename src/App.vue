@@ -1,73 +1,64 @@
 <template>
-  <div class="tabs-container">
-    <div class="tabs">
-      <button
-        class="tab-btn"
-        :class="{ active: activeTab === 'members' }"
-        @click="activeTab = 'members'"
-      >
-        Üyelerim
-      </button>
-
-      <button
-        class="tab-btn"
-        :class="{ active: activeTab === 'upload' }"
-        @click="activeTab = 'upload'"
-      >
-        Dosya Ekleme
-      </button>
-
-      <button
-        class="tab-btn"
-        :class="{ active: activeTab === 'analysis' }"
-        @click="activeTab = 'analysis'"
-      >
-        Analiz
-      </button>
-
-      <button
-        class="tab-btn"
-        :class="{ active: activeTab === 'sync' }"
-        @click="activeTab = 'sync'"
-      >
-        Firebase Yükleme
-      </button>
-    </div>
+  <!-- AUTH LOADING -->
+  <div v-if="authLoading" class="info-banner" style="margin:16px">
+    Oturum kontrol ediliyor...
   </div>
 
-  <div class="page-wrapper">
-    <!-- Üyeler TAB: tablo + detay -->
-    <div v-if="activeTab === 'members'">
-      <div v-if="isLoadingUsers" class="info-banner">
-        Kullanıcılar yükleniyor...
-      </div>
+  <!-- LOGIN -->
+  <Login v-else-if="!firebaseUser" />
 
-      <div v-else-if="usersError" class="error-banner">
-        {{ usersError }}
-      </div>
+  <!-- APP -->
+  <template v-else>
+    <div class="tabs-container">
+      <div class="tabs">
+        <button class="tab-btn" :class="{ active: activeTab === 'members' }" @click="activeTab = 'members'">
+          Üyelerim
+        </button>
+        <button class="tab-btn" :class="{ active: activeTab === 'upload' }" @click="activeTab = 'upload'">
+          Dosya Ekleme
+        </button>
+        <button class="tab-btn" :class="{ active: activeTab === 'analysis' }" @click="activeTab = 'analysis'">
+          Analiz
+        </button>
+        <button class="tab-btn" :class="{ active: activeTab === 'sync' }" @click="activeTab = 'sync'">
+          Firebase Yükleme
+        </button>
 
-      <div
-        v-else
-        class="members-layout"
-      >
-        <Members
-          :users="users"
-          @select-user="selectedUser = $event"
-        />
-
-        <MemberDetail :user="selectedUser" />
+        <!-- Çıkış -->
+        <button class="tab-btn logout" @click="handleLogout">
+          Çıkış
+        </button>
       </div>
     </div>
 
-    <!-- Diğer tablar -->
-    <Upload v-if="activeTab === 'upload'" />
-    <Analysis v-if="activeTab === 'analysis'" :users="users" />
-    <SyncUpload v-if="activeTab === 'sync'" />
-  </div>
+    <div class="page-wrapper">
+      <div v-if="activeTab === 'members'">
+        <div v-if="isLoadingUsers" class="info-banner">
+          Kullanıcılar yükleniyor...
+        </div>
+
+        <div v-else-if="usersError" class="error-banner">
+          {{ usersError }}
+        </div>
+
+        <div v-else class="members-layout">
+          <Members :users="users" @select-user="selectedUser = $event" />
+          <MemberDetail :user="selectedUser" />
+        </div>
+      </div>
+
+      <Upload v-if="activeTab === 'upload'" />
+      <Analysis v-if="activeTab === 'analysis'" :users="users" />
+      <SyncUpload v-if="activeTab === 'sync'" />
+    </div>
+  </template>
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from "vue"
+import { ref, onMounted, onUnmounted } from "vue"
+import { onAuthStateChanged, signOut, type User } from "firebase/auth"
+import { auth } from "./firebase"
+
 import {
   collection,
   getDocs,
@@ -81,7 +72,11 @@ import Upload from "./components/tabs/Upload.vue"
 import Analysis from "./components/tabs/Analysis.vue"
 import SyncUpload from "./components/tabs/SyncUpload.vue"
 import MemberDetail from "./components/tabs/MemberDetail.vue"
+import Login from "./components/Login.vue"
 import { db } from "./firebase"
+
+const firebaseUser = ref<User | null>(null)
+const authLoading = ref(true)
 
 const users = ref<UserReport[]>([])
 const isLoadingUsers = ref(true)
@@ -89,7 +84,6 @@ const usersError = ref<string | null>(null)
 const selectedUser = ref<UserReport | null>(null)
 const activeTab = ref<"members" | "upload" | "analysis" | "sync">("members")
 
-// Firestore'dan en son güne ait user listesini çek
 const loadLatestUsers = async () => {
   isLoadingUsers.value = true
   usersError.value = null
@@ -97,7 +91,6 @@ const loadLatestUsers = async () => {
   selectedUser.value = null
 
   try {
-    // dailyUsers koleksiyonundan en son tarihi bul
     const daysCol = collection(db, "dailyUsers")
     const q = query(daysCol, orderBy("date", "desc"), limit(1))
     const snap = await getDocs(q)
@@ -107,7 +100,7 @@ const loadLatestUsers = async () => {
       return
     }
 
-    const latestDoc = snap.docs[0] // en son gün
+    const latestDoc = snap.docs[0]
     const usersCol = collection(latestDoc.ref, "users")
     const usersSnap = await getDocs(usersCol)
 
@@ -117,11 +110,7 @@ const loadLatestUsers = async () => {
     })
 
     users.value = result
-
-    // varsayılan olarak ilk kullanıcıyı seç
-    if (result.length > 0) {
-      selectedUser.value = result[0]
-    }
+    if (result.length > 0) selectedUser.value = result[0]
   } catch (err: any) {
     console.error(err)
     usersError.value =
@@ -131,8 +120,33 @@ const loadLatestUsers = async () => {
   }
 }
 
+async function handleLogout() {
+  await signOut(auth)
+  // state zaten onAuthStateChanged ile düşecek
+}
+
+let unsubAuth: (() => void) | null = null
+
 onMounted(() => {
-  void loadLatestUsers()
+  unsubAuth = onAuthStateChanged(auth, async (u) => {
+    firebaseUser.value = u
+    authLoading.value = false
+
+    if (u) {
+      // giriş yaptıysa datayı çek
+      await loadLatestUsers()
+    } else {
+      // çıkış yaptıysa temizle
+      users.value = []
+      selectedUser.value = null
+      usersError.value = null
+      isLoadingUsers.value = false
+    }
+  })
+})
+
+onUnmounted(() => {
+  unsubAuth?.()
 })
 </script>
 
@@ -147,6 +161,11 @@ onMounted(() => {
   justify-content: center;
   z-index: 100;
   pointer-events: none;
+}
+
+.tab-btn.logout {
+  flex: 0.8;
+  opacity: 0.9;
 }
 
 .tabs {
@@ -234,7 +253,14 @@ onMounted(() => {
 }
 
 @keyframes fadeIn {
-  from { opacity: 0; transform: translateY(4px); }
-  to   { opacity: 1; transform: translateY(0px); }
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+
+  to {
+    opacity: 1;
+    transform: translateY(0px);
+  }
 }
 </style>

@@ -2,7 +2,10 @@
   <div class="user-table-wrapper">
     <!-- Üst bar -->
     <div class="table-header">
-      <h2>Üyeler</h2>
+      <div>
+        <h2>Üyeler</h2>
+      </div>
+
       <div class="table-controls">
         <span class="total">
           Toplam: {{ users.length }} üye
@@ -13,11 +16,52 @@
 
         <!-- Search -->
         <div class="search-wrapper">
-          <input
-            v-model="searchQuery"
-            type="text"
-            placeholder="Üye ID veya Telefon ara..."
-          />
+          <input v-model="searchQuery" type="text" placeholder="Üye ID veya Telefon ara..." />
+        </div>
+
+        <!-- Telefonu eksik olanlar filtresi -->
+        <button class="filter-btn" :class="{ active: filterMissingPhone }"
+          @click="filterMissingPhone = !filterMissingPhone">
+          📵 Telefonu Eksik Olanlar
+        </button>
+
+        <!-- Extra filters & sort -->
+        <div class="advanced-controls">
+          <!-- Aktif/Pasif -->
+          <select v-model="statusFilter" class="chip-select">
+            <option value="all">Tümü</option>
+            <option value="active">Sadece Aktif</option>
+            <option value="passive">Sadece Pasif</option>
+          </select>
+
+          <!-- Son 30/60 -->
+          <select v-model="lastDaysFilter" class="chip-select">
+            <option value="all">30/60: Tümü</option>
+            <option value="last30">Son 30 gün: Evet</option>
+            <option value="last60">Son 60 gün: Evet</option>
+            <option value="none">Son 30/60: Hayır</option>
+          </select>
+
+          <!-- Sıralama alanı -->
+          <select v-model="sortKey" class="chip-select">
+            <option value="memberId">Üye ID</option>
+            <option value="phoneNumber">Telefon</option>
+            <option value="totalAmountValue">Toplam Tutar</option>
+            <option value="totalBalance">Bakiye</option>
+            <option value="playedMonths">Oynanan Ay</option>
+            <option value="weeklyAverage">Haftalık Ort.</option>
+            <option value="lastDepositeDate">Son Yükleme Tarihi</option>
+          </select>
+
+          <!-- Artan/Azalan -->
+          <button class="filter-btn" @click="sortDir = sortDir === 'asc' ? 'desc' : 'asc'">
+            {{ sortDir === "asc" ? "⬆️ Artan" : "⬇️ Azalan" }}
+          </button>
+
+          <!-- Temizle -->
+          <button class="filter-btn danger" :disabled="!hasAnyFilter" @click="resetFilters">
+            🧹 Filtreleri Temizle
+          </button>
         </div>
 
         <label class="page-size">
@@ -37,34 +81,54 @@
       <table>
         <thead>
           <tr>
-            <th>Üye ID</th>
-            <th>Telefon</th>
+            <th class="sortable" :class="{ active: sortKey === 'memberId' }" @click="toggleSort('memberId')">
+              Üye ID <span v-if="sortKey === 'memberId'" class="arrow">{{ sortArrow }}</span>
+            </th>
+
+            <th class="sortable" :class="{ active: sortKey === 'phoneNumber' }" @click="toggleSort('phoneNumber')">
+              Telefon <span v-if="sortKey === 'phoneNumber'" class="arrow">{{ sortArrow }}</span>
+            </th>
+
             <th>Aktif</th>
-            <th>Toplam Tutar</th>
+
+            <th class="sortable" :class="{ active: sortKey === 'totalAmountValue' }"
+              @click="toggleSort('totalAmountValue')">
+              Toplam Tutar
+              <span v-if="sortKey === 'totalAmountValue'" class="arrow">{{ sortArrow }}</span>
+            </th>
+
             <th>Son İşlem Ayı</th>
-            <th>Son Yükleme Tarihi</th>
+
+            <th class="sortable" :class="{ active: sortKey === 'lastDepositeDate' }"
+              @click="toggleSort('lastDepositeDate')">
+              Son Yükleme Tarihi
+              <span v-if="sortKey === 'lastDepositeDate'" class="arrow">{{ sortArrow }}</span>
+            </th>
+
             <th>Son Yükleme Tutarı</th>
-            <th>Bakiye</th>
-            <th>Oynanan Ay</th>
-            <th>Haftalık Ort.</th>
+
+            <th class="sortable" :class="{ active: sortKey === 'totalBalance' }" @click="toggleSort('totalBalance')">
+              Bakiye <span v-if="sortKey === 'totalBalance'" class="arrow">{{ sortArrow }}</span>
+            </th>
+
+            <th class="sortable" :class="{ active: sortKey === 'playedMonths' }" @click="toggleSort('playedMonths')">
+              Oynanan Ay <span v-if="sortKey === 'playedMonths'" class="arrow">{{ sortArrow }}</span>
+            </th>
+
+            <th class="sortable" :class="{ active: sortKey === 'weeklyAverage' }" @click="toggleSort('weeklyAverage')">
+              Haftalık Ort. <span v-if="sortKey === 'weeklyAverage'" class="arrow">{{ sortArrow }}</span>
+            </th>
+
             <th>Son 30 Gün</th>
             <th>Son 60 Gün</th>
           </tr>
         </thead>
         <tbody>
-          <tr
-            v-for="user in paginatedUsers"
-            :key="user.memberId"
-            class="row-clickable"
-            @click="onRowClick(user)"
-          >
+          <tr v-for="user in paginatedUsers" :key="user.memberId" class="row-clickable" @click="onRowClick(user)">
             <td>{{ user.memberId }}</td>
-            <td>{{ user.phoneNumber }}</td>
+            <td>{{ user.phoneNumber || "-" }}</td>
             <td>
-              <span
-                class="badge"
-                :class="user.isActive ? 'badge-active' : 'badge-passive'"
-              >
+              <span class="badge" :class="user.isActive ? 'badge-active' : 'badge-passive'">
                 {{ user.isActive ? "Aktif" : "Pasif" }}
               </span>
             </td>
@@ -76,18 +140,12 @@
             <td>{{ user.playedMonths }}</td>
             <td>{{ user.weeklyAverageStr }}</td>
             <td>
-              <span
-                class="badge small"
-                :class="user.last30DaysAmount ? 'badge-yes' : 'badge-no'"
-              >
+              <span class="badge small" :class="user.last30DaysAmount ? 'badge-yes' : 'badge-no'">
                 {{ user.last30DaysAmount ? "Evet" : "Hayır" }}
               </span>
             </td>
             <td>
-              <span
-                class="badge small"
-                :class="user.last60DaysAmount ? 'badge-yes' : 'badge-no'"
-              >
+              <span class="badge small" :class="user.last60DaysAmount ? 'badge-yes' : 'badge-no'">
                 {{ user.last60DaysAmount ? "Evet" : "Hayır" }}
               </span>
             </td>
@@ -102,24 +160,15 @@
 
     <!-- Pagination -->
     <div class="pagination">
-      <button
-        type="button"
-        :disabled="currentPage === 1"
-        @click="currentPage--"
-      >
+      <button type="button" :disabled="currentPage === 1" @click="currentPage--">
         ‹ Önceki
       </button>
 
       <span class="page-info">
-        Sayfa
-        <strong>{{ currentPage }}</strong> / {{ totalPages }}
+        Sayfa <strong>{{ currentPage }}</strong> / {{ totalPages }}
       </span>
 
-      <button
-        type="button"
-        :disabled="currentPage === totalPages"
-        @click="currentPage++"
-      >
+      <button type="button" :disabled="currentPage === totalPages" @click="currentPage++">
         Sonraki ›
       </button>
     </div>
@@ -145,7 +194,7 @@ export type UserReport = {
   last30DaysAmount: boolean
   last60DaysAmount: boolean
   memberId: number
-  phoneNumber: string
+  phoneNumber: string | null
   totalBalance: number
   totalBalanceStr: string
   playedMonths: number
@@ -163,6 +212,9 @@ const emit = defineEmits<{
 
 const users = computed(() => props.users ?? [])
 
+// filtre state
+const filterMissingPhone = ref(false)
+
 // search state
 const searchQuery = ref("")
 
@@ -170,22 +222,102 @@ const searchQuery = ref("")
 const currentPage = ref(1)
 const pageSize = ref(20)
 
-// Search uygulanmış liste
+type SortDir = "asc" | "desc"
+type StatusFilter = "all" | "active" | "passive"
+type LastDaysFilter = "all" | "last30" | "last60" | "none"
+
+const statusFilter = ref<StatusFilter>("all")
+const lastDaysFilter = ref<LastDaysFilter>("all")
+
+const sortKey = ref<
+  | "memberId"
+  | "phoneNumber"
+  | "totalAmountValue"
+  | "totalBalance"
+  | "playedMonths"
+  | "weeklyAverage"
+  | "lastDepositeDate"
+>("memberId")
+
+const sortDir = ref<SortDir>("desc")
+
+const sortArrow = computed(() => (sortDir.value === "asc" ? "▲" : "▼"))
+
+const toggleSort = (key: typeof sortKey.value) => {
+  if (sortKey.value === key) {
+    sortDir.value = sortDir.value === "asc" ? "desc" : "asc"
+  } else {
+    sortKey.value = key
+    // ilk tıklamada desc istiyorsan desc bırak, asc istiyorsan "asc" yap
+    sortDir.value = "desc"
+  }
+}
+
+// Search + filtre + sıralama uygulanmış liste
 const filteredUsers = computed(() => {
   const q = searchQuery.value.trim().toLowerCase()
-  if (!q) return users.value
 
-  return users.value.filter((u) => {
-    const phone = (u.phoneNumber ?? "").toLowerCase()
-    const memberIdStr = String(u.memberId ?? "").toLowerCase()
-    return phone.includes(q) || memberIdStr.includes(q)
+  let base = users.value
+
+  // 1) Telefonu eksik olanlar
+  if (filterMissingPhone.value) {
+    base = base.filter((u) => !u.phoneNumber || u.phoneNumber.trim() === "")
+  }
+
+  // 2) Aktif/Pasif filtresi
+  if (statusFilter.value !== "all") {
+    const wantActive = statusFilter.value === "active"
+    base = base.filter((u) => u.isActive === wantActive)
+  }
+
+  // 3) Son 30/60 filtresi
+  if (lastDaysFilter.value !== "all") {
+    if (lastDaysFilter.value === "last30") base = base.filter((u) => u.last30DaysAmount)
+    if (lastDaysFilter.value === "last60") base = base.filter((u) => u.last60DaysAmount)
+    if (lastDaysFilter.value === "none") {
+      base = base.filter((u) => !u.last30DaysAmount && !u.last60DaysAmount)
+    }
+  }
+
+  // 4) Search (telefon veya üye id)
+  if (q) {
+    base = base.filter((u) => {
+      const phone = (u.phoneNumber ?? "").toLowerCase()
+      const memberIdStr = String(u.memberId ?? "").toLowerCase()
+      return phone.includes(q) || memberIdStr.includes(q)
+    })
+  }
+
+  // 5) Sorting (immutable)
+  const sorted = [...base].sort((a, b) => {
+    const dir = sortDir.value === "asc" ? 1 : -1
+    const key = sortKey.value
+
+    // date
+    if (key === "lastDepositeDate") {
+      const at = a.lastDepositeDate ? new Date(a.lastDepositeDate).getTime() : 0
+      const bt = b.lastDepositeDate ? new Date(b.lastDepositeDate).getTime() : 0
+      return (at - bt) * dir
+    }
+
+    // string
+    if (key === "phoneNumber") {
+      const av = (a.phoneNumber ?? "").toLowerCase()
+      const bv = (b.phoneNumber ?? "").toLowerCase()
+      return av.localeCompare(bv) * dir
+    }
+
+    // numbers (null-safe)
+    const av = (a[key] as number | null) ?? 0
+    const bv = (b[key] as number | null) ?? 0
+    return (av - bv) * dir
   })
+
+  return sorted
 })
 
 const totalPages = computed(() =>
-  filteredUsers.value.length === 0
-    ? 1
-    : Math.ceil(filteredUsers.value.length / pageSize.value),
+  filteredUsers.value.length === 0 ? 1 : Math.ceil(filteredUsers.value.length / pageSize.value),
 )
 
 const paginatedUsers = computed(() => {
@@ -196,6 +328,11 @@ const paginatedUsers = computed(() => {
 
 // pageSize değişince sayfa başını sıfırla
 watch(pageSize, () => {
+  currentPage.value = 1
+})
+
+// filtre değişince başa dön
+watch(filterMissingPhone, () => {
   currentPage.value = 1
 })
 
@@ -213,6 +350,32 @@ watch(
 watch(searchQuery, () => {
   currentPage.value = 1
 })
+
+// yeni filtre/sort değişince başa dön
+watch([statusFilter, lastDaysFilter, sortKey, sortDir], () => {
+  currentPage.value = 1
+})
+
+const hasAnyFilter = computed(() => {
+  return (
+    filterMissingPhone.value
+    || !!searchQuery.value.trim()
+    || statusFilter.value !== "all"
+    || lastDaysFilter.value !== "all"
+    || sortKey.value !== "memberId"
+    || sortDir.value !== "desc"
+  )
+})
+
+function resetFilters() {
+  searchQuery.value = ""
+  filterMissingPhone.value = false
+  statusFilter.value = "all"
+  lastDaysFilter.value = "all"
+  sortKey.value = "memberId"
+  sortDir.value = "desc"
+  currentPage.value = 1
+}
 
 function formatDate(dateStr: string | null): string {
   if (!dateStr) return "-"
@@ -236,8 +399,7 @@ function onRowClick(user: UserReport) {
   border-radius: 16px;
   border: 1px solid #1f2937;
   color: #e5e7eb;
-  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI",
-    sans-serif;
+  font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
 }
 
 .table-header {
@@ -256,7 +418,7 @@ function onRowClick(user: UserReport) {
 .table-controls {
   display: flex;
   align-items: center;
-  gap: 1rem;
+  gap: 0.75rem;
   font-size: 0.875rem;
   flex-wrap: wrap;
 }
@@ -278,6 +440,63 @@ function onRowClick(user: UserReport) {
 
 .search-wrapper input::placeholder {
   color: #6b7280;
+}
+
+/* Filter button */
+.filter-btn {
+  background: #1e293b;
+  border: 1px solid #475569;
+  padding: 0.35rem 0.8rem;
+  border-radius: 999px;
+  font-size: 0.75rem;
+  cursor: pointer;
+  color: #cbd5e1;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: background 0.2s ease, border-color 0.2s ease, transform 0.1s ease;
+}
+
+.filter-btn:hover {
+  background: #334155;
+}
+
+.filter-btn.active {
+  background: #4f46e5;
+  border-color: #6366f1;
+  color: #f9fafb;
+  transform: translateY(-1px);
+}
+
+.filter-btn:disabled {
+  opacity: 0.4;
+  cursor: default;
+}
+
+.filter-btn.danger {
+  border-color: rgba(248, 113, 113, 0.6);
+  background: rgba(248, 113, 113, 0.1);
+}
+
+.filter-btn.danger:hover:not(:disabled) {
+  background: rgba(248, 113, 113, 0.18);
+}
+
+/* Advanced controls */
+.advanced-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.chip-select {
+  background: #020617;
+  color: #e5e7eb;
+  border-radius: 999px;
+  border: 1px solid #374151;
+  padding: 0.3rem 0.75rem;
+  font-size: 0.8rem;
 }
 
 .table-controls .page-size select {
@@ -336,6 +555,26 @@ tbody tr:hover {
 
 td {
   border-bottom: 1px solid #111827;
+}
+
+th.sortable {
+  cursor: pointer;
+  user-select: none;
+  transition: color 0.15s ease;
+}
+
+th.sortable:hover {
+  color: #e5e7eb;
+}
+
+th.sortable.active {
+  color: #a5b4fc;
+}
+
+.arrow {
+  margin-left: 6px;
+  font-size: 0.7rem;
+  opacity: 0.85;
 }
 
 .row-clickable {
