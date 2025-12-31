@@ -33,6 +33,26 @@
 
     <div class="page-wrapper">
       <div v-if="activeTab === 'members'">
+        <div v-if="isLoadingDays" class="info-banner">
+          Tarihler yükleniyor...
+        </div>
+
+        <div class="members-toolbar">
+          <label class="day-picker">
+            <span>Tarih</span>
+            <select
+              v-model="selectedDay"
+              :disabled="isLoadingDays || !availableDays.length"
+              @change="handleSelectedDayChange"
+            >
+              <option value="" disabled>Seç...</option>
+              <option v-for="day in availableDays" :key="day" :value="day">
+                {{ day }}
+              </option>
+            </select>
+          </label>
+        </div>
+
         <div v-if="isLoadingUsers" class="info-banner">
           Kullanıcılar yükleniyor...
         </div>
@@ -64,7 +84,7 @@ import {
   getDocs,
   orderBy,
   query,
-  limit,
+  doc,
 } from "firebase/firestore"
 
 import Members, { UserReport } from "./components/tabs/Members.vue"
@@ -83,25 +103,20 @@ const isLoadingUsers = ref(true)
 const usersError = ref<string | null>(null)
 const selectedUser = ref<UserReport | null>(null)
 const activeTab = ref<"members" | "upload" | "analysis" | "sync">("members")
+const availableDays = ref<string[]>([])
+const selectedDay = ref("")
+const isLoadingDays = ref(false)
 
-const loadLatestUsers = async () => {
+const loadUsersByDay = async (day: string) => {
+  if (!day) return
   isLoadingUsers.value = true
   usersError.value = null
   users.value = []
   selectedUser.value = null
 
   try {
-    const daysCol = collection(db, "dailyUsers")
-    const q = query(daysCol, orderBy("date", "desc"), limit(1))
-    const snap = await getDocs(q)
-
-    if (snap.empty) {
-      usersError.value = "Firebase'de hiç günlük kullanıcı datası bulunamadı."
-      return
-    }
-
-    const latestDoc = snap.docs[0]
-    const usersCol = collection(latestDoc.ref, "users")
+    const parentRef = doc(db, "dailyUsers", day)
+    const usersCol = collection(parentRef, "users")
     const usersSnap = await getDocs(usersCol)
 
     const result: UserReport[] = []
@@ -120,6 +135,49 @@ const loadLatestUsers = async () => {
   }
 }
 
+const loadAvailableDays = async () => {
+  isLoadingDays.value = true
+  usersError.value = null
+
+  try {
+    const q = query(collection(db, "dailyUsers"), orderBy("date", "desc"))
+    const snap = await getDocs(q)
+    const days: string[] = []
+    snap.forEach((docSnap) => {
+      days.push(docSnap.id)
+    })
+
+    availableDays.value = days
+
+    if (!days.length) {
+      selectedDay.value = ""
+      users.value = []
+      selectedUser.value = null
+      usersError.value = "Firebase'de hiç günlük kullanıcı datası bulunamadı."
+      isLoadingUsers.value = false
+      return
+    }
+
+    if (!selectedDay.value || !days.includes(selectedDay.value)) {
+      selectedDay.value = days[0]
+    }
+
+    await loadUsersByDay(selectedDay.value)
+  } catch (err: any) {
+    console.error(err)
+    usersError.value =
+      "Tarih listesi alınırken hata oluştu: " + (err?.message ?? String(err))
+    isLoadingUsers.value = false
+  } finally {
+    isLoadingDays.value = false
+  }
+}
+
+const handleSelectedDayChange = async () => {
+  if (!selectedDay.value) return
+  await loadUsersByDay(selectedDay.value)
+}
+
 async function handleLogout() {
   await signOut(auth)
   // state zaten onAuthStateChanged ile düşecek
@@ -134,13 +192,15 @@ onMounted(() => {
 
     if (u) {
       // giriş yaptıysa datayı çek
-      await loadLatestUsers()
+      await loadAvailableDays()
     } else {
       // çıkış yaptıysa temizle
       users.value = []
       selectedUser.value = null
       usersError.value = null
       isLoadingUsers.value = false
+      availableDays.value = []
+      selectedDay.value = ""
     }
   })
 })
@@ -198,6 +258,34 @@ onUnmounted(() => {
   display: grid;
   grid-template-columns: minmax(0, 2fr) minmax(0, 1.3fr);
   gap: 16px;
+}
+
+.members-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: #0f172a;
+  border: 1px solid #1f2937;
+  color: #e5e7eb;
+}
+
+.day-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 0.85rem;
+}
+
+.day-picker select {
+  background: #020617;
+  color: #e5e7eb;
+  border-radius: 999px;
+  border: 1px solid #374151;
+  padding: 0.35rem 0.75rem;
+  font-size: 0.85rem;
 }
 
 @media (max-width: 1024px) {
