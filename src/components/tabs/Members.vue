@@ -64,6 +64,23 @@
           </button>
         </div>
 
+        <div class="export-controls">
+          <button
+            class="filter-btn export-btn"
+            :disabled="!zeroTurnoverUsers.length"
+            @click="downloadZeroTurnoverExcel"
+          >
+            📤 0 Ciro Excel ({{ zeroTurnoverUsers.length }})
+          </button>
+          <button
+            class="filter-btn export-btn secondary"
+            :disabled="!zeroBalanceTurnoverUsers.length"
+            @click="downloadZeroBalanceTurnoverExcel"
+          >
+            📤 Ciro > 0 & Bakiye 0 Excel ({{ zeroBalanceTurnoverUsers.length }})
+          </button>
+        </div>
+
         <label class="page-size">
           Sayfa başına:
           <select v-model.number="pageSize">
@@ -177,6 +194,7 @@
 
 <script setup lang="ts">
 import { computed, ref, watch } from "vue"
+import ExcelJS from "exceljs"
 
 export type UserReport = {
   isActive: boolean
@@ -316,6 +334,16 @@ const filteredUsers = computed(() => {
   return sorted
 })
 
+const zeroTurnoverUsers = computed(() =>
+  filteredUsers.value.filter((u) => (u.totalAmountValue ?? 0) === 0),
+)
+
+const zeroBalanceTurnoverUsers = computed(() =>
+  filteredUsers.value.filter(
+    (u) => (u.totalAmountValue ?? 0) > 0 && (u.totalBalance ?? 0) === 0,
+  ),
+)
+
 const totalPages = computed(() =>
   filteredUsers.value.length === 0 ? 1 : Math.ceil(filteredUsers.value.length / pageSize.value),
 )
@@ -385,6 +413,94 @@ function formatDate(dateStr: string | null): string {
   const month = (d.getMonth() + 1).toString().padStart(2, "0")
   const year = d.getFullYear()
   return `${day}.${month}.${year}`
+}
+
+const exportHeaders = [
+  "Üye ID",
+  "Telefon",
+  "Aktif",
+  "Toplam Ciro",
+  "Son İşlem Ayı",
+  "Son Kupon Tarihi",
+  "Son Yükleme Tarihi",
+  "Son Yükleme Tutarı",
+  "Bakiye",
+  "Oynanan Ay",
+  "Haftalık Ort.",
+  "Son 30 Gün",
+  "Son 60 Gün",
+] as const
+
+const getExportRow = (u: UserReport) => [
+  u.memberId ?? "",
+  u.phoneNumber ?? "",
+  u.isActive ? "Aktif" : "Pasif",
+  u.totalAmountValueStr ?? String(u.totalAmountValue ?? ""),
+  u.lastOrderMonth || "",
+  formatDate(u.lastOrderDate ?? null),
+  formatDate(u.lastDepositeDate ?? null),
+  u.lastDepositeAmountStr ?? "",
+  u.totalBalanceStr ?? String(u.totalBalance ?? ""),
+  u.playedMonths ?? "",
+  u.weeklyAverageStr ?? "",
+  u.last30DaysAmount ? "Evet" : "Hayır",
+  u.last60DaysAmount ? "Evet" : "Hayır",
+]
+
+const downloadUsersExcel = async (rows: UserReport[], filename: string) => {
+  if (!rows.length) return
+
+  const workbook = new ExcelJS.Workbook()
+  const sheet = workbook.addWorksheet("Üyeler")
+
+  const headerRow = sheet.addRow([...exportHeaders])
+  headerRow.font = { bold: true }
+  headerRow.eachCell((cell) => {
+    cell.fill = {
+      type: "pattern",
+      pattern: "solid",
+      fgColor: { argb: "FF111827" },
+    }
+    cell.font = {
+      bold: true,
+      color: { argb: "FFE5E7EB" },
+    }
+  })
+
+  rows.forEach((u) => {
+    sheet.addRow(getExportRow(u))
+  })
+
+  sheet.columns.forEach((col) => {
+    if (!col) return
+    col.width = 18
+  })
+
+  const buffer = await workbook.xlsx.writeBuffer()
+  const blob = new Blob([buffer], {
+    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  })
+
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement("a")
+  link.href = url
+  link.download = filename
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  URL.revokeObjectURL(url)
+}
+
+const getTodayStamp = () => new Date().toISOString().split("T")[0]
+
+const downloadZeroTurnoverExcel = async () => {
+  const filename = `sifir-ciro-uyeler-${getTodayStamp()}.xlsx`
+  await downloadUsersExcel(zeroTurnoverUsers.value, filename)
+}
+
+const downloadZeroBalanceTurnoverExcel = async () => {
+  const filename = `ciro-var-bakiye-sifir-${getTodayStamp()}.xlsx`
+  await downloadUsersExcel(zeroBalanceTurnoverUsers.value, filename)
 }
 
 function onRowClick(user: UserReport) {
@@ -488,6 +604,33 @@ function onRowClick(user: UserReport) {
   align-items: center;
   gap: 0.6rem;
   flex-wrap: wrap;
+}
+
+.export-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.filter-btn.export-btn {
+  background: rgba(14, 165, 233, 0.18);
+  border-color: rgba(56, 189, 248, 0.6);
+  color: #e0f2fe;
+}
+
+.filter-btn.export-btn.secondary {
+  background: rgba(34, 197, 94, 0.18);
+  border-color: rgba(34, 197, 94, 0.6);
+  color: #dcfce7;
+}
+
+.filter-btn.export-btn:hover:not(:disabled) {
+  background: rgba(14, 165, 233, 0.28);
+}
+
+.filter-btn.export-btn.secondary:hover:not(:disabled) {
+  background: rgba(34, 197, 94, 0.28);
 }
 
 .chip-select {
