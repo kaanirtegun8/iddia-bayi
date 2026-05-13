@@ -79,6 +79,13 @@
           >
             📤 Ciro > 0 & Bakiye 0 Excel ({{ zeroBalanceTurnoverUsers.length }})
           </button>
+          <button
+            class="filter-btn export-btn high"
+            :disabled="!highTurnoverUsers.length"
+            @click="downloadHighTurnoverExcel"
+          >
+            💰 Ciro 1M+ Excel ({{ highTurnoverUsers.length }})
+          </button>
         </div>
 
         <label class="page-size">
@@ -344,6 +351,10 @@ const zeroBalanceTurnoverUsers = computed(() =>
   ),
 )
 
+const highTurnoverUsers = computed(() =>
+  filteredUsers.value.filter((u) => (u.totalAmountValue ?? 0) >= 1_000_000),
+)
+
 const totalPages = computed(() =>
   filteredUsers.value.length === 0 ? 1 : Math.ceil(filteredUsers.value.length / pageSize.value),
 )
@@ -503,6 +514,11 @@ const downloadZeroBalanceTurnoverExcel = async () => {
   await downloadUsersExcel(zeroBalanceTurnoverUsers.value, filename)
 }
 
+const downloadHighTurnoverExcel = async () => {
+  const filename = `ciro-1m-ustu-${getTodayStamp()}.xlsx`
+  await downloadUsersExcel(highTurnoverUsers.value, filename)
+}
+
 function onRowClick(user: UserReport) {
   emit("select-user", user)
 }
@@ -625,12 +641,22 @@ function onRowClick(user: UserReport) {
   color: #dcfce7;
 }
 
+.filter-btn.export-btn.high {
+  background: rgba(234, 179, 8, 0.18);
+  border-color: rgba(234, 179, 8, 0.6);
+  color: #fef9c3;
+}
+
 .filter-btn.export-btn:hover:not(:disabled) {
   background: rgba(14, 165, 233, 0.28);
 }
 
 .filter-btn.export-btn.secondary:hover:not(:disabled) {
   background: rgba(34, 197, 94, 0.28);
+}
+
+.filter-btn.export-btn.high:hover:not(:disabled) {
+  background: rgba(234, 179, 8, 0.28);
 }
 
 .chip-select {
