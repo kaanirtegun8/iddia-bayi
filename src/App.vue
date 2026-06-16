@@ -23,6 +23,9 @@
         <button class="tab-btn" :class="{ active: activeTab === 'sync' }" @click="activeTab = 'sync'">
           Firebase Yükleme
         </button>
+        <button class="tab-btn" :class="{ active: activeTab === 'whatsapp' }" @click="activeTab = 'whatsapp'">
+          WhatsApp Karşılaştırma
+        </button>
 
         <!-- Çıkış -->
         <button class="tab-btn logout" @click="handleLogout">
@@ -70,6 +73,7 @@
       <Upload v-if="activeTab === 'upload'" />
       <Analysis v-if="activeTab === 'analysis'" :users="users" />
       <SyncUpload v-if="activeTab === 'sync'" />
+      <WhatsappCompare v-if="activeTab === 'whatsapp'" />
     </div>
   </template>
 </template>
@@ -91,6 +95,7 @@ import Members, { UserReport } from "./components/tabs/Members.vue"
 import Upload from "./components/tabs/Upload.vue"
 import Analysis from "./components/tabs/Analysis.vue"
 import SyncUpload from "./components/tabs/SyncUpload.vue"
+import WhatsappCompare from "./components/tabs/WhatsappCompare.vue"
 import MemberDetail from "./components/tabs/MemberDetail.vue"
 import Login from "./components/Login.vue"
 import { db } from "./firebase"
@@ -102,7 +107,7 @@ const users = ref<UserReport[]>([])
 const isLoadingUsers = ref(true)
 const usersError = ref<string | null>(null)
 const selectedUser = ref<UserReport | null>(null)
-const activeTab = ref<"members" | "upload" | "analysis" | "sync">("members")
+const activeTab = ref<"members" | "upload" | "analysis" | "sync" | "whatsapp">("members")
 const availableDays = ref<string[]>([])
 const selectedDay = ref("")
 const isLoadingDays = ref(false)
