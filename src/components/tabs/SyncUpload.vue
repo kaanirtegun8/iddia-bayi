@@ -46,6 +46,10 @@
         <strong>giden kullanıcılar</strong> ve
         <strong>yeni gelen kullanıcılar</strong> listesini görebilir,
         ciroya göre sıralı ve renkli Excel raporu indirebilirsin.
+        Katılım (ilk görülme) tarihi tüm geçmiş günler taranarak bulunur:
+        yeni gelenlerde tarih <strong style="color:#22c55e">yeşilse</strong> üye o gün
+        ilk kez gelmiştir, <strong style="color:#ef4444">kırmızıysa</strong> daha önce
+        de gelmiş (geri dönen) üyedir.
       </p>
 
       <div class="compare-fields">
@@ -82,6 +86,17 @@
 
         <button
           type="button"
+          class="small-btn"
+          :disabled="indexLoading || !availableDays.length"
+          @click="rebuildMemberIdIndex"
+          title="Mevcut günler için memberId indeksini oluşturur. İlk görülme hesabını hızlandırır. Tek sefer çalıştırman yeterli."
+        >
+          <span v-if="!indexLoading">ID indeksini oluştur/yenile</span>
+          <span v-else>İndeksleniyor...</span>
+        </button>
+
+        <button
+          type="button"
           class="upload-btn"
           :disabled="diffLoading || !selectedDayA || !selectedDayB || selectedDayA === selectedDayB"
           @click="handleDiff"
@@ -90,6 +105,10 @@
           <span v-else>Hesaplanıyor...</span>
         </button>
       </div>
+
+      <p v-if="indexMessage" :class="['message', indexMessage.type]">
+        {{ indexMessage.text }}
+      </p>
 
       <p v-if="diffMessage" :class="['message', diffMessage.type]">
         {{ diffMessage.text }}
@@ -126,7 +145,7 @@
           <button
             class="small-btn"
             :disabled="!diffResult.joinedUsers.length"
-            @click="downloadExcel(diffResult.joinedUsers, `yeni-gelen-kullanicilar-${diffResult.dayA}-vs-${diffResult.dayB}.xlsx`)"
+            @click="downloadExcel(diffResult.joinedUsers, `yeni-gelen-kullanicilar-${diffResult.dayA}-vs-${diffResult.dayB}.xlsx`, diffResult.dayB)"
           >
             Yeni Gelenleri Excel İndir
           </button>
@@ -143,6 +162,7 @@
                     <th>Telefon</th>
                     <th>Toplam Ciro</th>
                     <th>Son İşlem Ayı</th>
+                    <th>Katılım (İlk Görülme)</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -154,6 +174,7 @@
                     <td>{{ u.phoneNumber }}</td>
                     <td>{{ u.totalAmountValueStr ?? '0,00' }}</td>
                     <td>{{ u.lastOrderMonth || '-' }}</td>
+                    <td>{{ formatDate(u.firstSeenDate) }}</td>
                   </tr>
                 </tbody>
               </table>
@@ -171,6 +192,7 @@
                     <th>Telefon</th>
                     <th>Toplam Ciro</th>
                     <th>Son İşlem Ayı</th>
+                    <th>Katılım (İlk Görülme)</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -182,6 +204,11 @@
                     <td>{{ u.phoneNumber }}</td>
                     <td>{{ u.totalAmountValueStr ?? '0,00' }}</td>
                     <td>{{ u.lastOrderMonth || '-' }}</td>
+                    <td>
+                      <span :class="u.isReturning ? 'date-returning' : 'date-new'">
+                        {{ formatDate(u.firstSeenDate) }}
+                      </span>
+                    </td>
                   </tr>
                 </tbody>
               </table>
@@ -199,6 +226,7 @@ import { ref, onMounted } from "vue"
 import {
   collection,
   doc,
+  getDoc,
   getDocs,
   orderBy,
   query,
@@ -217,6 +245,9 @@ type DailyUser = {
   lastOrderMonth?: string | null
   totalBalanceStr?: string | null
   totalBalanceValueStr?: string | null
+  // DB'mizde ilk göründüğü gün (katılım tarihi proxy'si) - karşılaştırma anında hesaplanır
+  firstSeenDate?: string | null
+  isReturning?: boolean
   [key: string]: any
 }
 
@@ -265,11 +296,23 @@ const handleUpload = async () => {
     // 1) Gün metadata doc
     const parentRef = doc(db, "dailyUsers", trimmedDate)
 
+    // İlk görülme hesabını hızlandırmak için günün memberId listesini
+    // metadata dökümanına yazıyoruz. Kullanıcı kayıtlarına dokunulmaz;
+    // bu sayede ilk görülme taraması gün başına tek küçük döküman okur.
+    const memberIds = Array.from(
+      new Set(
+        users
+          .map((u) => u.memberId)
+          .filter((id): id is number => id != null),
+      ),
+    )
+
     await setDoc(
       parentRef,
       {
         date: trimmedDate,
         totalUsers: users.length,
+        memberIds,
         createdAt: serverTimestamp(),
       },
       { merge: true },
@@ -311,7 +354,9 @@ const handleUpload = async () => {
       text: `✅ ${trimmedDate} için ${users.length} kullanıcı başarıyla yüklendi.`,
     }
 
-    // Gün listesini yenile
+    // Yeni gün eklendi -> ilk görülme önbelleğini sıfırla, gün listesini yenile
+    firstSeenMap.value = null
+    dayUsersCache.clear()
     await loadAvailableDays()
   } catch (err: any) {
     console.error(err)
@@ -410,11 +455,81 @@ const getUsersOfDay = async (day: string): Promise<DailyUser[]> => {
   return result
 }
 
+// Aynı günü tekrar tekrar Firestore'dan çekmemek için oturum önbelleği
+const dayUsersCache = new Map<string, DailyUser[]>()
+const firstSeenMap = ref<Map<number, string> | null>(null)
+
+const getUsersOfDayCached = async (day: string): Promise<DailyUser[]> => {
+  const cached = dayUsersCache.get(day)
+  if (cached) return cached
+  const users = await getUsersOfDay(day)
+  dayUsersCache.set(day, users)
+  return users
+}
+
+// Günün memberId listesini (hızlı yol) metadata dökümanından oku.
+// İndeks yoksa null döner -> çağıran taraf kullanıcı dökümanlarına düşer.
+const getMemberIdsOfDay = async (day: string): Promise<number[] | null> => {
+  const ref = doc(db, "dailyUsers", day)
+  const snap = await getDoc(ref)
+  const data = snap.data()
+  if (data && Array.isArray(data.memberIds)) {
+    return data.memberIds as number[]
+  }
+  return null
+}
+
+// Tüm yüklenmiş günleri (eskiden yeniye) tarayıp her üyenin
+// DB'mizde İLK göründüğü günü bulur. Bu bizim "katılım tarihi" proxy'miz:
+// gelen datada gerçek katılım tarihi olmadığı için ilk görülme gününü kullanıyoruz.
+const buildFirstSeenMap = async (): Promise<Map<number, string>> => {
+  if (firstSeenMap.value) return firstSeenMap.value
+
+  const days = [...availableDays.value]
+  const map = new Map<number, string>()
+
+  // Günleri sırayla değil, paralel (eşzamanlılık sınırlı) çekiyoruz.
+  // İlk görülme = her üye için en erken gün olduğundan sıra önemli değil,
+  // min alarak birleştiriyoruz.
+  const CONCURRENCY = 12
+  for (let i = 0; i < days.length; i += CONCURRENCY) {
+    const slice = days.slice(i, i + CONCURRENCY)
+    const results = await Promise.all(
+      slice.map(async (day) => {
+        // Hızlı yol: günün memberId indeksini oku (tek küçük döküman).
+        let ids = await getMemberIdsOfDay(day)
+        if (ids == null) {
+          // İndekslenmemiş gün -> kullanıcı dökümanlarından çıkar (yavaş yol)
+          const users = await getUsersOfDayCached(day)
+          ids = users
+            .map((u) => u.memberId)
+            .filter((id): id is number => id != null)
+        }
+        return { day, ids }
+      }),
+    )
+    for (const { day, ids } of results) {
+      for (const id of ids) {
+        const prev = map.get(id)
+        if (prev == null || day < prev) {
+          map.set(id, day) // en erken (ilk) görülme günü
+        }
+      }
+    }
+  }
+
+  firstSeenMap.value = map
+  return map
+}
+
 // İki günü diff et
 const diffTwoDays = async (dayA: string, dayB: string) => {
+  // Tüm geçmişi tara: her üyenin DB'mizde ilk göründüğü gün
+  const firstSeen = await buildFirstSeenMap()
+
   const [usersA, usersB] = await Promise.all([
-    getUsersOfDay(dayA),
-    getUsersOfDay(dayB),
+    getUsersOfDayCached(dayA),
+    getUsersOfDayCached(dayB),
   ])
 
   const mapA = new Map<number, DailyUser>()
@@ -427,20 +542,31 @@ const diffTwoDays = async (dayA: string, dayB: string) => {
     if (u.memberId != null) mapB.set(u.memberId, u)
   }
 
+  // Üyeye ilk görülme tarihini ekle.
+  // isReturning: ilk görülme dayB değilse (yani daha önce de gelmişse) -> geri dönen
+  const withFirstSeen = (user: DailyUser): DailyUser => {
+    const fs = user.memberId != null ? firstSeen.get(user.memberId) ?? null : null
+    return {
+      ...user,
+      firstSeenDate: fs,
+      isReturning: fs != null && fs !== dayB,
+    }
+  }
+
   const leftUsers: DailyUser[] = []
   const joinedUsers: DailyUser[] = []
 
   // dayA'da var, dayB'de yok -> gidenler
   for (const [id, user] of mapA.entries()) {
     if (!mapB.has(id)) {
-      leftUsers.push(user)
+      leftUsers.push(withFirstSeen(user))
     }
   }
 
   // dayB'de var, dayA'da yok -> yeni gelenler
   for (const [id, user] of mapB.entries()) {
     if (!mapA.has(id)) {
-      joinedUsers.push(user)
+      joinedUsers.push(withFirstSeen(user))
     }
   }
 
@@ -505,8 +631,67 @@ const handleDiff = async () => {
   }
 }
 
+// --- MEMBERID İNDEKSİ (mevcut günler için tek seferlik backfill) ---
+
+const indexLoading = ref(false)
+const indexMessage = ref<null | { type: "success" | "error"; text: string }>(null)
+
+// Mevcut tüm günler için memberId indeksini (yeniden) oluştur.
+// Tek seferlik yavaş işlemdir (kullanıcı dökümanlarını bir kez okur),
+// ardından ilk görülme hesabı gün başına tek döküman okuyarak çok hızlanır.
+const rebuildMemberIdIndex = async () => {
+  indexMessage.value = null
+
+  if (!availableDays.value.length) {
+    indexMessage.value = { type: "error", text: "İndekslenecek gün yok." }
+    return
+  }
+
+  indexLoading.value = true
+  try {
+    let done = 0
+    for (const day of availableDays.value) {
+      const users = await getUsersOfDayCached(day)
+      const memberIds = Array.from(
+        new Set(
+          users
+            .map((u) => u.memberId)
+            .filter((id): id is number => id != null),
+        ),
+      )
+
+      await setDoc(
+        doc(db, "dailyUsers", day),
+        { memberIds },
+        { merge: true },
+      )
+      done++
+    }
+
+    // İndeks değişti -> ilk görülme önbelleğini sıfırla ki yeni hızlı yolu kullansın
+    firstSeenMap.value = null
+
+    indexMessage.value = {
+      type: "success",
+      text: `✅ ${done} gün için ID indeksi oluşturuldu. Artık karşılaştırma çok daha hızlı.`,
+    }
+  } catch (err: any) {
+    console.error(err)
+    indexMessage.value = {
+      type: "error",
+      text: "İndeks oluşturulurken hata: " + (err?.message ?? String(err)),
+    }
+  } finally {
+    indexLoading.value = false
+  }
+}
+
 // Diff sonuçlarını renkli Excel olarak indir
-const downloadExcel = async (users: DailyUser[], filename: string) => {
+const downloadExcel = async (
+  users: DailyUser[],
+  filename: string,
+  highlightNewDay?: string,
+) => {
   if (!users.length) return
 
   const workbook = new ExcelJS.Workbook()
@@ -521,6 +706,7 @@ const downloadExcel = async (users: DailyUser[], filename: string) => {
     "Son Kupon Tarihi",
     "Son Yükleme Tarihi",
     "Bakiye",
+    "Katılım (İlk Görülme)",
   ])
 
   headerRow.font = { bold: true }
@@ -552,6 +738,7 @@ const downloadExcel = async (users: DailyUser[], filename: string) => {
       formatDate(u.lastOrderDate),
       formatDate(u.lastDepositeDate),
       u.totalBalanceValueStr ?? u.totalBalanceStr ?? "",
+      formatDate(u.firstSeenDate),
     ])
 
     // Satırın tamamını ciroya göre boyuyoruz
@@ -562,6 +749,23 @@ const downloadExcel = async (users: DailyUser[], filename: string) => {
         fgColor: { argb: colorCode },
       }
     })
+
+    // Yeni gelenler için katılım tarihini renklendir:
+    // tarih o güne (B gününe) aitse yeşil = gerçekten yeni,
+    // daha eskiyse kırmızı = daha önce de gelmiş (geri dönen).
+    if (highlightNewDay) {
+      const isNew = u.firstSeenDate === highlightNewDay
+      const dateCell = row.getCell(8)
+      dateCell.fill = {
+        type: "pattern",
+        pattern: "solid",
+        fgColor: { argb: "FFFFFFFF" },
+      }
+      dateCell.font = {
+        bold: true,
+        color: { argb: isNew ? "FF16A34A" : "FFDC2626" },
+      }
+    }
   })
 
   // Kolon genişlikleri
@@ -696,6 +900,17 @@ h2 {
 
 .message.error {
   color: #fecaca;
+}
+
+/* Katılım (ilk görülme) tarihi renkleri - sadece Yeni Gelenler tablosunda */
+.date-new {
+  color: #22c55e;
+  font-weight: 600;
+}
+
+.date-returning {
+  color: #ef4444;
+  font-weight: 600;
 }
 
 .compare-fields {
