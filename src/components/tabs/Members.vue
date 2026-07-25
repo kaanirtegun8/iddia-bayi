@@ -88,6 +88,42 @@
           </button>
         </div>
 
+        <div class="inactive-export-card">
+          <div class="inactive-export-copy">
+            <strong>Bakiye 0 / Son Oynama Raporu</strong>
+            <span>
+              Bakiye 0 ve son oynama tarihi seçilen ayın son günü veya daha eski olan üyeler
+            </span>
+          </div>
+
+          <label class="cutoff-picker">
+            <span>Son oynama</span>
+            <select v-model="selectedCutoffMonth">
+              <option
+                v-for="month in cutoffMonthOptions"
+                :key="month.value"
+                :value="month.value"
+              >
+                {{ month.label }} ve öncesi ({{ month.endDateLabel }})
+              </option>
+            </select>
+          </label>
+
+          <span class="zero-balance-chip">Bakiye: 0</span>
+
+          <button
+            class="filter-btn inactive-export-btn"
+            :disabled="!inactiveZeroBalanceUsers.length || isInactiveExporting"
+            @click="downloadInactiveZeroBalanceExcel"
+          >
+            {{
+              isInactiveExporting
+                ? "Excel hazırlanıyor..."
+                : `Excel İndir (${inactiveZeroBalanceUsers.length})`
+            }}
+          </button>
+        </div>
+
         <label class="page-size">
           Sayfa başına:
           <select v-model.number="pageSize">
@@ -237,6 +273,47 @@ const emit = defineEmits<{
 
 const users = computed(() => props.users ?? [])
 
+const TURKISH_MONTHS = [
+  "Ocak",
+  "Şubat",
+  "Mart",
+  "Nisan",
+  "Mayıs",
+  "Haziran",
+  "Temmuz",
+  "Ağustos",
+  "Eylül",
+  "Ekim",
+  "Kasım",
+  "Aralık",
+] as const
+
+const REPORT_YEAR = 2026
+
+const cutoffMonthOptions = TURKISH_MONTHS.map((month, index) => {
+  const monthNumber = index + 1
+  const endDay = new Date(REPORT_YEAR, monthNumber, 0).getDate()
+
+  return {
+    value: `${REPORT_YEAR}-${String(monthNumber).padStart(2, "0")}`,
+    label: `${month} ${REPORT_YEAR}`,
+    endDateLabel: `${String(endDay).padStart(2, "0")}.${String(monthNumber).padStart(2, "0")}.${REPORT_YEAR}`,
+    filenameSlug: month
+      .toLocaleLowerCase("tr-TR")
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/ı/g, "i")
+      .replace(/ş/g, "s")
+      .replace(/ğ/g, "g")
+      .replace(/ü/g, "u")
+      .replace(/ö/g, "o")
+      .replace(/ç/g, "c"),
+  }
+})
+
+const selectedCutoffMonth = ref(`${REPORT_YEAR}-05`)
+const isInactiveExporting = ref(false)
+
 // filtre state
 const filterMissingPhone = ref(false)
 
@@ -353,6 +430,67 @@ const zeroBalanceTurnoverUsers = computed(() =>
 
 const highTurnoverUsers = computed(() =>
   filteredUsers.value.filter((u) => (u.totalAmountValue ?? 0) >= 1_000_000),
+)
+
+const parseBalance = (u: UserReport): number | null => {
+  if (typeof u.totalBalance === "number" && Number.isFinite(u.totalBalance)) {
+    return u.totalBalance
+  }
+
+  const raw = u.totalBalanceStr?.trim()
+  if (!raw) return null
+
+  const parsed = Number(raw.replace(/\./g, "").replace(",", "."))
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+const getLastOrderMonthKey = (u: UserReport): string | null => {
+  const isoMatch = u.lastOrderDate?.match(/^(\d{4})-(\d{2})/)
+  if (isoMatch) {
+    return `${isoMatch[1]}-${isoMatch[2]}`
+  }
+
+  if (u.lastOrderDate) {
+    const parsedDate = new Date(u.lastOrderDate)
+    if (!Number.isNaN(parsedDate.getTime())) {
+      return `${parsedDate.getFullYear()}-${String(parsedDate.getMonth() + 1).padStart(2, "0")}`
+    }
+  }
+
+  const monthMatch = u.lastOrderMonth?.trim().match(/^(.+)\s+(\d{4})$/)
+  if (!monthMatch) return null
+
+  const monthIndex = TURKISH_MONTHS.findIndex(
+    (month) =>
+      month.toLocaleLowerCase("tr-TR")
+      === monthMatch[1].trim().toLocaleLowerCase("tr-TR"),
+  )
+
+  if (monthIndex === -1) return null
+  return `${monthMatch[2]}-${String(monthIndex + 1).padStart(2, "0")}`
+}
+
+const inactiveZeroBalanceUsers = computed(() =>
+  users.value
+    .filter((u) => {
+      const lastOrderMonthKey = getLastOrderMonthKey(u)
+      return (
+        parseBalance(u) === 0
+        && lastOrderMonthKey !== null
+        && lastOrderMonthKey <= selectedCutoffMonth.value
+      )
+    })
+    .sort((a, b) => {
+      const monthCompare = (getLastOrderMonthKey(b) ?? "").localeCompare(
+        getLastOrderMonthKey(a) ?? "",
+      )
+      if (monthCompare !== 0) return monthCompare
+
+      const dateCompare = (b.lastOrderDate ?? "").localeCompare(a.lastOrderDate ?? "")
+      if (dateCompare !== 0) return dateCompare
+
+      return (b.memberId ?? 0) - (a.memberId ?? 0)
+    }),
 )
 
 const totalPages = computed(() =>
@@ -519,6 +657,24 @@ const downloadHighTurnoverExcel = async () => {
   await downloadUsersExcel(highTurnoverUsers.value, filename)
 }
 
+const downloadInactiveZeroBalanceExcel = async () => {
+  const selectedMonth = cutoffMonthOptions.find(
+    (month) => month.value === selectedCutoffMonth.value,
+  )
+  if (!selectedMonth || !inactiveZeroBalanceUsers.value.length) return
+
+  isInactiveExporting.value = true
+
+  try {
+    const filename =
+      `bakiye-0-son-oynama-${selectedMonth.filenameSlug}-${REPORT_YEAR}-ve-oncesi`
+      + `-${getTodayStamp()}.xlsx`
+    await downloadUsersExcel(inactiveZeroBalanceUsers.value, filename)
+  } finally {
+    isInactiveExporting.value = false
+  }
+}
+
 function onRowClick(user: UserReport) {
   emit("select-user", user)
 }
@@ -627,6 +783,80 @@ function onRowClick(user: UserReport) {
   align-items: center;
   gap: 0.6rem;
   flex-wrap: wrap;
+}
+
+.inactive-export-card {
+  flex: 1 1 100%;
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  padding: 0.75rem;
+  border: 1px solid rgba(99, 102, 241, 0.45);
+  border-radius: 12px;
+  background: linear-gradient(
+    135deg,
+    rgba(79, 70, 229, 0.16),
+    rgba(14, 165, 233, 0.08)
+  );
+}
+
+.inactive-export-copy {
+  min-width: 260px;
+  margin-right: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.inactive-export-copy strong {
+  color: #f8fafc;
+  font-size: 0.82rem;
+}
+
+.inactive-export-copy span {
+  color: #94a3b8;
+  font-size: 0.72rem;
+}
+
+.cutoff-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: #cbd5e1;
+  font-size: 0.75rem;
+}
+
+.cutoff-picker select {
+  min-width: 250px;
+  background: #020617;
+  color: #e5e7eb;
+  border-radius: 999px;
+  border: 1px solid #475569;
+  padding: 0.38rem 0.75rem;
+  font-size: 0.76rem;
+}
+
+.zero-balance-chip {
+  border: 1px solid rgba(34, 197, 94, 0.55);
+  border-radius: 999px;
+  padding: 0.34rem 0.7rem;
+  background: rgba(34, 197, 94, 0.14);
+  color: #bbf7d0;
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
+.filter-btn.inactive-export-btn {
+  border-color: rgba(129, 140, 248, 0.8);
+  background: linear-gradient(135deg, #4f46e5, #2563eb);
+  color: #fff;
+  font-weight: 600;
+  padding: 0.42rem 0.9rem;
+}
+
+.filter-btn.inactive-export-btn:hover:not(:disabled) {
+  background: linear-gradient(135deg, #6366f1, #3b82f6);
 }
 
 .filter-btn.export-btn {
