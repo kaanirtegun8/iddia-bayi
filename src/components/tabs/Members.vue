@@ -90,9 +90,9 @@
 
         <div class="inactive-export-card">
           <div class="inactive-export-copy">
-            <strong>Bakiye 0 / Son Oynama Raporu</strong>
+            <strong>Bakiye / Son Oynama Raporu</strong>
             <span>
-              Bakiye 0 ve son oynama tarihi seçilen ayın son günü veya daha eski olan üyeler
+              Bakiyesi belirlediğin tutar veya altında olan eski üyeleri Excel'e aktar
             </span>
           </div>
 
@@ -109,17 +109,36 @@
             </select>
           </label>
 
-          <span class="zero-balance-chip">Bakiye: 0</span>
+          <label class="balance-limit-picker" :class="{ invalid: balanceLimit === null }">
+            <span>Bakiye üst sınırı</span>
+            <div class="balance-limit-input">
+              <input
+                v-model="balanceLimitInput"
+                type="text"
+                inputmode="decimal"
+                autocomplete="off"
+                placeholder="Örn. 50 veya 10,50"
+                aria-label="Bakiye üst sınırı"
+              />
+              <span>TL ve altında</span>
+            </div>
+          </label>
 
           <button
             class="filter-btn inactive-export-btn"
-            :disabled="!inactiveZeroBalanceUsers.length || isInactiveExporting"
-            @click="downloadInactiveZeroBalanceExcel"
+            :disabled="
+              balanceLimit === null
+              || !inactiveBalanceUsers.length
+              || isInactiveExporting
+            "
+            @click="downloadInactiveBalanceExcel"
           >
             {{
               isInactiveExporting
                 ? "Excel hazırlanıyor..."
-                : `Excel İndir (${inactiveZeroBalanceUsers.length})`
+                : balanceLimit === null
+                  ? "Geçerli tutar gir"
+                  : `Excel İndir (${inactiveBalanceUsers.length})`
             }}
           </button>
         </div>
@@ -312,6 +331,7 @@ const cutoffMonthOptions = TURKISH_MONTHS.map((month, index) => {
 })
 
 const selectedCutoffMonth = ref(`${REPORT_YEAR}-05`)
+const balanceLimitInput = ref("0")
 const isInactiveExporting = ref(false)
 
 // filtre state
@@ -432,16 +452,32 @@ const highTurnoverUsers = computed(() =>
   filteredUsers.value.filter((u) => (u.totalAmountValue ?? 0) >= 1_000_000),
 )
 
+const parseLocalizedAmount = (value: string | null | undefined): number | null => {
+  const raw = value?.trim().replace(/\s/g, "").replace("₺", "")
+  if (!raw) return null
+
+  let normalized = raw
+  if (raw.includes(",")) {
+    normalized = raw.replace(/\./g, "").replace(",", ".")
+  } else if (/^-?\d{1,3}(\.\d{3})+$/.test(raw)) {
+    normalized = raw.replace(/\./g, "")
+  }
+
+  const parsed = Number(normalized)
+  return Number.isFinite(parsed) ? parsed : null
+}
+
+const balanceLimit = computed(() => {
+  const parsed = parseLocalizedAmount(balanceLimitInput.value)
+  return parsed !== null && parsed >= 0 ? parsed : null
+})
+
 const parseBalance = (u: UserReport): number | null => {
   if (typeof u.totalBalance === "number" && Number.isFinite(u.totalBalance)) {
     return u.totalBalance
   }
 
-  const raw = u.totalBalanceStr?.trim()
-  if (!raw) return null
-
-  const parsed = Number(raw.replace(/\./g, "").replace(",", "."))
-  return Number.isFinite(parsed) ? parsed : null
+  return parseLocalizedAmount(u.totalBalanceStr)
 }
 
 const getLastOrderMonthKey = (u: UserReport): string | null => {
@@ -470,12 +506,15 @@ const getLastOrderMonthKey = (u: UserReport): string | null => {
   return `${monthMatch[2]}-${String(monthIndex + 1).padStart(2, "0")}`
 }
 
-const inactiveZeroBalanceUsers = computed(() =>
+const inactiveBalanceUsers = computed(() =>
   users.value
     .filter((u) => {
+      const userBalance = parseBalance(u)
       const lastOrderMonthKey = getLastOrderMonthKey(u)
       return (
-        parseBalance(u) === 0
+        balanceLimit.value !== null
+        && userBalance !== null
+        && userBalance <= balanceLimit.value
         && lastOrderMonthKey !== null
         && lastOrderMonthKey <= selectedCutoffMonth.value
       )
@@ -657,19 +696,29 @@ const downloadHighTurnoverExcel = async () => {
   await downloadUsersExcel(highTurnoverUsers.value, filename)
 }
 
-const downloadInactiveZeroBalanceExcel = async () => {
+const downloadInactiveBalanceExcel = async () => {
   const selectedMonth = cutoffMonthOptions.find(
     (month) => month.value === selectedCutoffMonth.value,
   )
-  if (!selectedMonth || !inactiveZeroBalanceUsers.value.length) return
+  if (
+    !selectedMonth
+    || balanceLimit.value === null
+    || !inactiveBalanceUsers.value.length
+  ) {
+    return
+  }
 
   isInactiveExporting.value = true
 
   try {
+    const balanceSlug = Number.isInteger(balanceLimit.value)
+      ? String(balanceLimit.value)
+      : balanceLimit.value.toFixed(2).replace(".", "-")
     const filename =
-      `bakiye-0-son-oynama-${selectedMonth.filenameSlug}-${REPORT_YEAR}-ve-oncesi`
+      `bakiye-${balanceSlug}-ve-alti-son-oynama`
+      + `-${selectedMonth.filenameSlug}-${REPORT_YEAR}-ve-oncesi`
       + `-${getTodayStamp()}.xlsx`
-    await downloadUsersExcel(inactiveZeroBalanceUsers.value, filename)
+    await downloadUsersExcel(inactiveBalanceUsers.value, filename)
   } finally {
     isInactiveExporting.value = false
   }
@@ -837,14 +886,47 @@ function onRowClick(user: UserReport) {
   font-size: 0.76rem;
 }
 
-.zero-balance-chip {
+.balance-limit-picker {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  color: #cbd5e1;
+  font-size: 0.75rem;
+}
+
+.balance-limit-input {
+  display: inline-flex;
+  align-items: center;
+  overflow: hidden;
   border: 1px solid rgba(34, 197, 94, 0.55);
   border-radius: 999px;
-  padding: 0.34rem 0.7rem;
-  background: rgba(34, 197, 94, 0.14);
+  background: rgba(34, 197, 94, 0.1);
+  transition: border-color 0.2s ease, background 0.2s ease;
+}
+
+.balance-limit-input input {
+  width: 105px;
+  padding: 0.38rem 0.25rem 0.38rem 0.7rem;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: #f0fdf4;
+  font-size: 0.76rem;
+}
+
+.balance-limit-input input::placeholder {
+  color: #64748b;
+}
+
+.balance-limit-input span {
+  padding: 0.38rem 0.7rem 0.38rem 0.25rem;
   color: #bbf7d0;
-  font-size: 0.75rem;
   white-space: nowrap;
+}
+
+.balance-limit-picker.invalid .balance-limit-input {
+  border-color: rgba(248, 113, 113, 0.75);
+  background: rgba(248, 113, 113, 0.1);
 }
 
 .filter-btn.inactive-export-btn {
