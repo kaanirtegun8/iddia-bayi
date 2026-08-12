@@ -20,6 +20,9 @@
         <button class="tab-btn" :class="{ active: activeTab === 'analysis' }" @click="activeTab = 'analysis'">
           Analiz
         </button>
+        <button class="tab-btn special-tracking-tab" :class="{ active: activeTab === 'specialTracking' }" @click="activeTab = 'specialTracking'">
+          Özel Oyuncu Takibi
+        </button>
         <button class="tab-btn" :class="{ active: activeTab === 'sync' }" @click="activeTab = 'sync'">
           Firebase Yükleme
         </button>
@@ -72,6 +75,11 @@
 
       <Upload v-if="activeTab === 'upload'" />
       <Analysis v-if="activeTab === 'analysis'" :users="users" />
+      <SpecialPlayerTracking
+        v-if="activeTab === 'specialTracking'"
+        :users="users"
+        :member-snapshot-day="selectedDay"
+      />
       <SyncUpload v-if="activeTab === 'sync'" />
       <WhatsappCompare v-if="activeTab === 'whatsapp'" />
     </div>
@@ -94,6 +102,7 @@ import {
 import Members, { UserReport } from "./components/tabs/Members.vue"
 import Upload from "./components/tabs/Upload.vue"
 import Analysis from "./components/tabs/Analysis.vue"
+import SpecialPlayerTracking from "./components/tabs/SpecialPlayerTracking.vue"
 import SyncUpload from "./components/tabs/SyncUpload.vue"
 import WhatsappCompare from "./components/tabs/WhatsappCompare.vue"
 import MemberDetail from "./components/tabs/MemberDetail.vue"
@@ -107,7 +116,7 @@ const users = ref<UserReport[]>([])
 const isLoadingUsers = ref(true)
 const usersError = ref<string | null>(null)
 const selectedUser = ref<UserReport | null>(null)
-const activeTab = ref<"members" | "upload" | "analysis" | "sync" | "whatsapp">("members")
+const activeTab = ref<"members" | "upload" | "analysis" | "specialTracking" | "sync" | "whatsapp">("members")
 const availableDays = ref<string[]>([])
 const selectedDay = ref("")
 const isLoadingDays = ref(false)
@@ -235,7 +244,7 @@ onUnmounted(() => {
 
 .tabs {
   pointer-events: auto;
-  width: min(900px, 100% - 32px);
+  width: min(1120px, 100% - 32px);
   display: flex;
   gap: 8px;
   padding: 6px;
@@ -247,6 +256,15 @@ onUnmounted(() => {
   height: 52px;
   align-items: center;
   box-sizing: border-box;
+}
+
+.tab-btn.special-tracking-tab {
+  color: #fde68a;
+}
+
+.tab-btn.special-tracking-tab.active {
+  color: #0f172a;
+  background: linear-gradient(135deg, #fbbf24, #67e8f9);
 }
 
 /* SAYFA İÇERİĞİ */
