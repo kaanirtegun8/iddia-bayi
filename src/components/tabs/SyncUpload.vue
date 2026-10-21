@@ -307,28 +307,35 @@ const handleUpload = async () => {
       ),
     )
 
-    await setDoc(
-      parentRef,
-      {
-        date: trimmedDate,
-        totalUsers: users.length,
-        memberIds,
-        createdAt: serverTimestamp(),
-      },
-      { merge: true },
-    )
+    // Aynı güne tekrar yükleme yapılırsa eski liste tamamen değiştirilir:
+    // metadata merge edilmeden yazılır, yeni listede olmayan eski kullanıcılar silinir.
+    await setDoc(parentRef, {
+      date: trimmedDate,
+      totalUsers: users.length,
+      memberIds,
+      createdAt: serverTimestamp(),
+    })
 
     // 2) Kullanıcılar: subcollection'a batch ile yaz
+    const usersCol = collection(parentRef, "users")
     let batch = writeBatch(db)
     let opCount = 0
+
+    const commitIfFull = async () => {
+      opCount++
+      if (opCount >= MAX_BATCH) {
+        await batch.commit()
+        batch = writeBatch(db)
+        opCount = 0
+      }
+    }
 
     for (const user of users) {
       if (user.memberId == null) {
         continue
       }
 
-      const userId = String(user.memberId)
-      const userRef = doc(collection(parentRef, "users"), userId)
+      const userRef = doc(usersCol, String(user.memberId))
 
       batch.set(userRef, {
         ...user,
@@ -336,13 +343,20 @@ const handleUpload = async () => {
         phoneNumber: user.phoneNumber ?? "",
       })
 
-      opCount++
+      await commitIfFull()
+    }
 
-      if (opCount >= MAX_BATCH) {
-        await batch.commit()
-        batch = writeBatch(db)
-        opCount = 0
-      }
+    // 3) Önceki yüklemeden kalıp yeni listede olmayan kullanıcıları sil.
+    // Silme, yeni liste yazıldıktan sonra yapılır; yarıda kesilirse gün boş kalmaz.
+    const newIds = new Set(memberIds.map(String))
+    const existingSnap = await getDocs(usersCol)
+    let removedCount = 0
+
+    for (const docSnap of existingSnap.docs) {
+      if (newIds.has(docSnap.id)) continue
+      batch.delete(docSnap.ref)
+      removedCount++
+      await commitIfFull()
     }
 
     if (opCount > 0) {
@@ -351,7 +365,11 @@ const handleUpload = async () => {
 
     message.value = {
       type: "success",
-      text: `✅ ${trimmedDate} için ${users.length} kullanıcı başarıyla yüklendi.`,
+      text:
+        `✅ ${trimmedDate} için ${users.length} kullanıcı başarıyla yüklendi.` +
+        (removedCount
+          ? ` Önceki yüklemeden kalan ${removedCount} eski kayıt silindi.`
+          : ""),
     }
 
     // Yeni gün eklendi -> ilk görülme önbelleğini sıfırla, gün listesini yenile
