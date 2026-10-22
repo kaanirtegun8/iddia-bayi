@@ -3,11 +3,12 @@
     <div class="card">
       <div class="card-head">
         <div>
-          <h2>İlk Kez Gelenler (Dün / Bugün)</h2>
+          <h2>İlk Kez Gelenler ({{ formatDate(START_DAY) }} ve sonrası)</h2>
           <p class="subtitle">
-            Dün ve bugün listemize <strong>ilk kez</strong> giren üyeler.
-            Daha önce herhangi bir günde görünüp çıkıp tekrar gelenler bu listede yer almaz.
-            Bugünün datası yüklenmemişse sadece dün gösterilir.
+            {{ formatDate(START_DAY) }} tarihinden itibaren listemize <strong>ilk kez</strong> giren
+            tüm üyeler. Her yeni gün yüklendikçe liste büyür. Daha önce herhangi bir günde
+            görünüp çıkıp tekrar gelenler bu listede yer almaz. Ciro ve bakiye, üyenin
+            göründüğü en son günün datasından gelir.
           </p>
         </div>
         <button class="small-btn" :disabled="isLoading" @click="load">
@@ -15,15 +16,10 @@
         </button>
       </div>
 
-      <div class="day-chips">
-        <span
-          v-for="d in targetDays"
-          :key="d.day"
-          :class="['chip', d.uploaded ? 'chip-ok' : 'chip-missing']"
-        >
-          {{ d.label }} ({{ formatDate(d.day) }}):
-          <template v-if="d.uploaded">{{ d.count }} ilk kez gelen</template>
-          <template v-else>data yüklenmemiş</template>
+      <div class="day-chips" v-if="!isLoading">
+        <span class="chip chip-total">Toplam: {{ joiners.length }} üye</span>
+        <span v-for="d in dayCounts" :key="d.day" class="chip chip-ok">
+          {{ formatDate(d.day) }}: {{ d.count }} ilk kez gelen
         </span>
       </div>
 
@@ -40,6 +36,7 @@
                 <th>Son İşlem Ayı</th>
                 <th>Bakiye</th>
                 <th>İlk Görülme</th>
+                <th>Son Görülme</th>
               </tr>
             </thead>
             <tbody>
@@ -50,23 +47,29 @@
                 <td>{{ u.lastOrderMonth || '-' }}</td>
                 <td>{{ u.totalBalanceValueStr ?? u.totalBalanceStr ?? '-' }}</td>
                 <td>{{ formatDate(u.firstSeenDate) }}</td>
+                <td :class="{ 'gone': u.lastSeenDate !== latestDay }">
+                  {{ formatDate(u.lastSeenDate) }}
+                </td>
               </tr>
             </tbody>
           </table>
         </div>
-        <p v-else class="empty">Dün / bugün ilk kez gelen üye yok.</p>
+        <p v-else class="empty">Bu tarihten beri ilk kez gelen üye yok.</p>
       </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
-// GEÇİCİ TAB: dün ve bugün ilk kez katılan üyeleri listeler.
+// GEÇİCİ TAB: START_DAY'den itibaren listemize ilk kez katılan üyeleri biriktirerek listeler.
 // İlk görülme mantığı SyncUpload.vue'daki ile aynıdır; tab kaldırılırken
 // bu dosya ve App.vue'daki buton/import silinmesi yeterli.
 import { ref, onMounted } from "vue"
 import { collection, doc, getDoc, getDocs } from "firebase/firestore"
 import { db } from "../../firebase"
+
+// Takibin başladığı gün: bu günden önce hiç görülmemiş üyeler "ilk kez gelen" sayılır.
+const START_DAY = "2026-10-20"
 
 type DailyUser = {
   memberId: number
@@ -77,17 +80,8 @@ type DailyUser = {
   totalBalanceStr?: string | null
   totalBalanceValueStr?: string | null
   firstSeenDate?: string | null
+  lastSeenDate?: string | null
   [key: string]: any
-}
-
-type TargetDay = { day: string; label: string; uploaded: boolean; count: number }
-
-// Yerel saate göre "YYYY-MM-DD"
-const toDayKey = (d: Date) => {
-  const y = d.getFullYear()
-  const m = String(d.getMonth() + 1).padStart(2, "0")
-  const day = String(d.getDate()).padStart(2, "0")
-  return `${y}-${m}-${day}`
 }
 
 const formatDate = (value: string | null | undefined) => {
@@ -98,8 +92,9 @@ const formatDate = (value: string | null | undefined) => {
 
 const isLoading = ref(false)
 const error = ref<string | null>(null)
-const targetDays = ref<TargetDay[]>([])
+const dayCounts = ref<{ day: string; count: number }[]>([])
 const joiners = ref<DailyUser[]>([])
+const latestDay = ref<string | null>(null)
 
 const getUsersOfDay = async (day: string): Promise<DailyUser[]> => {
   const snap = await getDocs(collection(doc(db, "dailyUsers", day), "users"))
@@ -115,55 +110,77 @@ const getMemberIdsOfDay = async (day: string): Promise<number[]> => {
   return users.map((u) => u.memberId).filter((id): id is number => id != null)
 }
 
+const getMemberIdsOfDays = async (days: string[]): Promise<number[][]> => {
+  const CONCURRENCY = 12
+  const all: number[][] = []
+  for (let i = 0; i < days.length; i += CONCURRENCY) {
+    all.push(...(await Promise.all(days.slice(i, i + CONCURRENCY).map(getMemberIdsOfDay))))
+  }
+  return all
+}
+
 const load = async () => {
   isLoading.value = true
   error.value = null
   joiners.value = []
+  dayCounts.value = []
 
   try {
-    const now = new Date()
-    const today = toDayKey(now)
-    const yesterday = toDayKey(new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1))
-
     const daysSnap = await getDocs(collection(db, "dailyUsers"))
-    const allDays = daysSnap.docs.map((d) => d.id)
-    const uploaded = new Set(allDays)
+    const allDays = daysSnap.docs.map((d) => d.id).sort()
+    const earlierDays = allDays.filter((d) => d < START_DAY)
+    const trackedDays = allDays.filter((d) => d >= START_DAY)
+    latestDay.value = trackedDays[trackedDays.length - 1] ?? null
+    if (!trackedDays.length) return
 
-    const targets: TargetDay[] = [
-      { day: yesterday, label: "Dün", uploaded: uploaded.has(yesterday), count: 0 },
-      { day: today, label: "Bugün", uploaded: uploaded.has(today), count: 0 },
-    ]
-    targetDays.value = targets
-
-    const uploadedTargets = targets.filter((t) => t.uploaded)
-    if (!uploadedTargets.length) return
-
-    // Dünden önceki tüm günlerde görülmüş üyeler -> bunlar "ilk kez" sayılmaz
-    const earlierDays = allDays.filter((d) => d < yesterday)
+    // START_DAY'den önceki herhangi bir günde görülmüş üyeler "ilk kez" sayılmaz
     const seenBefore = new Set<number>()
-    const CONCURRENCY = 12
-    for (let i = 0; i < earlierDays.length; i += CONCURRENCY) {
-      const results = await Promise.all(
-        earlierDays.slice(i, i + CONCURRENCY).map(getMemberIdsOfDay),
-      )
-      for (const ids of results) for (const id of ids) seenBefore.add(id)
+    for (const ids of await getMemberIdsOfDays(earlierDays)) {
+      for (const id of ids) seenBefore.add(id)
     }
 
-    // Dün önce işlenir; dün ilk kez gelen bugün de varsa tekrar eklenmez
+    // Takip edilen günleri eskiden yeniye tara: ilk ve son görülme günlerini bul
+    const firstSeen = new Map<number, string>()
+    const lastSeen = new Map<number, string>()
+    const trackedIds = await getMemberIdsOfDays(trackedDays)
+    trackedDays.forEach((day, i) => {
+      for (const id of trackedIds[i]) {
+        if (seenBefore.has(id)) continue
+        if (!firstSeen.has(id)) firstSeen.set(id, day)
+        lastSeen.set(id, day)
+      }
+    })
+
+    // Üye datası: göründüğü en son günden. Gün başına bir kez okunur.
+    const idsByLastDay = new Map<string, Set<number>>()
+    for (const [id, day] of lastSeen) {
+      if (!idsByLastDay.has(day)) idsByLastDay.set(day, new Set())
+      idsByLastDay.get(day)!.add(id)
+    }
+
     const result: DailyUser[] = []
-    const added = new Set<number>()
-    for (const t of uploadedTargets) {
-      const users = await getUsersOfDay(t.day)
-      for (const u of users) {
-        if (u.memberId == null || seenBefore.has(u.memberId) || added.has(u.memberId)) continue
-        added.add(u.memberId)
-        result.push({ ...u, firstSeenDate: t.day })
-        t.count++
+    for (const [day, ids] of idsByLastDay) {
+      for (const u of await getUsersOfDay(day)) {
+        if (u.memberId == null || !ids.has(u.memberId)) continue
+        result.push({
+          ...u,
+          firstSeenDate: firstSeen.get(u.memberId),
+          lastSeenDate: day,
+        })
       }
     }
 
-    result.sort((a, b) => (b.totalAmountValue ?? 0) - (a.totalAmountValue ?? 0))
+    // En yeni katılanlar üstte, aynı gün içinde ciroya göre
+    result.sort(
+      (a, b) =>
+        (b.firstSeenDate ?? "").localeCompare(a.firstSeenDate ?? "") ||
+        (b.totalAmountValue ?? 0) - (a.totalAmountValue ?? 0),
+    )
     joiners.value = result
+
+    const counts = new Map<string, number>()
+    for (const day of firstSeen.values()) counts.set(day, (counts.get(day) ?? 0) + 1)
+    dayCounts.value = trackedDays.map((day) => ({ day, count: counts.get(day) ?? 0 }))
   } catch (err: any) {
     console.error(err)
     error.value = "Liste alınırken hata: " + (err?.message ?? String(err))
@@ -228,10 +245,16 @@ h2 {
   color: #bbf7d0;
 }
 
-.chip-missing {
-  background: rgba(148, 163, 184, 0.1);
-  border: 1px solid rgba(148, 163, 184, 0.4);
-  color: #9ca3af;
+.chip-total {
+  background: rgba(99, 102, 241, 0.15);
+  border: 1px solid rgba(99, 102, 241, 0.5);
+  color: #c7d2fe;
+  font-weight: 600;
+}
+
+/* Son yüklenen günde artık görünmeyen üye */
+.gone {
+  color: #f87171;
 }
 
 .small-btn {
