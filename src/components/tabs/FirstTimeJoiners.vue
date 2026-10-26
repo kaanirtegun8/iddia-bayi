@@ -11,9 +11,19 @@
             göründüğü en son günün datasından gelir.
           </p>
         </div>
-        <button class="small-btn" :disabled="isLoading" @click="load">
-          {{ isLoading ? "Yükleniyor..." : "Yenile" }}
-        </button>
+        <div class="head-actions">
+          <select v-model="sortMode" class="sort-select" :disabled="isLoading">
+            <option value="joinDate">Sıralama: Katılım (yeni → eski)</option>
+            <option value="turnoverDesc">Sıralama: Ciro (yüksek → düşük)</option>
+            <option value="turnoverAsc">Sıralama: Ciro (düşük → yüksek)</option>
+          </select>
+          <button class="small-btn" :disabled="isLoading || !joiners.length" @click="downloadExcel">
+            Excel İndir
+          </button>
+          <button class="small-btn" :disabled="isLoading" @click="load">
+            {{ isLoading ? "Yükleniyor..." : "Yenile" }}
+          </button>
+        </div>
       </div>
 
       <div class="day-chips" v-if="!isLoading">
@@ -32,15 +42,22 @@
               <tr>
                 <th>Üye ID</th>
                 <th>Telefon</th>
-                <th>Toplam Ciro</th>
+                <th class="sortable" @click="toggleTurnoverSort">
+                  Toplam Ciro
+                  <span v-if="sortMode === 'turnoverDesc'">↓</span>
+                  <span v-else-if="sortMode === 'turnoverAsc'">↑</span>
+                </th>
                 <th>Son İşlem Ayı</th>
                 <th>Bakiye</th>
-                <th>İlk Görülme</th>
+                <th class="sortable" @click="sortMode = 'joinDate'">
+                  İlk Görülme
+                  <span v-if="sortMode === 'joinDate'">↓</span>
+                </th>
                 <th>Son Görülme</th>
               </tr>
             </thead>
             <tbody>
-              <tr v-for="u in joiners" :key="u.memberId">
+              <tr v-for="u in sortedJoiners" :key="u.memberId">
                 <td>{{ u.memberId }}</td>
                 <td>{{ u.phoneNumber }}</td>
                 <td>{{ u.totalAmountValueStr ?? '0,00' }}</td>
@@ -64,8 +81,9 @@
 // GEÇİCİ TAB: START_DAY'den itibaren listemize ilk kez katılan üyeleri biriktirerek listeler.
 // İlk görülme mantığı SyncUpload.vue'daki ile aynıdır; tab kaldırılırken
 // bu dosya ve App.vue'daki buton/import silinmesi yeterli.
-import { ref, onMounted } from "vue"
+import { ref, computed, onMounted } from "vue"
 import { collection, doc, getDoc, getDocs } from "firebase/firestore"
+import ExcelJS from "exceljs"
 import { db } from "../../firebase"
 
 // Takibin başladığı gün: bu günden önce hiç görülmemiş üyeler "ilk kez gelen" sayılır.
@@ -95,6 +113,27 @@ const error = ref<string | null>(null)
 const dayCounts = ref<{ day: string; count: number }[]>([])
 const joiners = ref<DailyUser[]>([])
 const latestDay = ref<string | null>(null)
+
+type SortMode = "joinDate" | "turnoverDesc" | "turnoverAsc"
+const sortMode = ref<SortMode>("joinDate")
+
+const byTurnover = (a: DailyUser, b: DailyUser) =>
+  (a.totalAmountValue ?? 0) - (b.totalAmountValue ?? 0)
+
+// joinDate: en yeni katılanlar üstte, aynı gün içinde ciroya göre
+const sortedJoiners = computed(() => {
+  const list = [...joiners.value]
+  if (sortMode.value === "turnoverDesc") return list.sort((a, b) => byTurnover(b, a))
+  if (sortMode.value === "turnoverAsc") return list.sort(byTurnover)
+  return list.sort(
+    (a, b) =>
+      (b.firstSeenDate ?? "").localeCompare(a.firstSeenDate ?? "") || byTurnover(b, a),
+  )
+})
+
+const toggleTurnoverSort = () => {
+  sortMode.value = sortMode.value === "turnoverDesc" ? "turnoverAsc" : "turnoverDesc"
+}
 
 const getUsersOfDay = async (day: string): Promise<DailyUser[]> => {
   const snap = await getDocs(collection(doc(db, "dailyUsers", day), "users"))
@@ -170,12 +209,6 @@ const load = async () => {
       }
     }
 
-    // En yeni katılanlar üstte, aynı gün içinde ciroya göre
-    result.sort(
-      (a, b) =>
-        (b.firstSeenDate ?? "").localeCompare(a.firstSeenDate ?? "") ||
-        (b.totalAmountValue ?? 0) - (a.totalAmountValue ?? 0),
-    )
     joiners.value = result
 
     const counts = new Map<string, number>()
@@ -190,6 +223,61 @@ const load = async () => {
 }
 
 onMounted(load)
+
+// Ekrandaki listeyi aynı sırayla Excel'e aktar.
+// Son yüklenen günde artık görünmeyen üyelerin "Son Görülme" hücresi kırmızı.
+const downloadExcel = async () => {
+  if (!joiners.value.length) return
+
+  const workbook = new ExcelJS.Workbook()
+  const sheet = workbook.addWorksheet("İlk Kez Gelenler")
+
+  const headerRow = sheet.addRow([
+    "Üye ID",
+    "Telefon",
+    "Toplam Ciro",
+    "Son İşlem Ayı",
+    "Bakiye",
+    "İlk Görülme",
+    "Son Görülme",
+  ])
+  headerRow.eachCell((cell) => {
+    cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: "FF111827" } }
+    cell.font = { bold: true, color: { argb: "FFE5E7EB" } }
+  })
+
+  for (const u of sortedJoiners.value) {
+    const row = sheet.addRow([
+      u.memberId,
+      u.phoneNumber,
+      u.totalAmountValueStr ?? "0,00",
+      u.lastOrderMonth || "",
+      u.totalBalanceValueStr ?? u.totalBalanceStr ?? "",
+      formatDate(u.firstSeenDate),
+      formatDate(u.lastSeenDate),
+    ])
+    if (u.lastSeenDate !== latestDay.value) {
+      row.getCell(7).font = { bold: true, color: { argb: "FFDC2626" } }
+    }
+  }
+
+  sheet.columns.forEach((col) => {
+    if (col) col.width = 18
+  })
+
+  const buffer = await workbook.xlsx.writeBuffer()
+  const blob = new Blob([buffer], {
+    type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  })
+  const url = URL.createObjectURL(blob)
+  const link = document.createElement("a")
+  link.href = url
+  link.download = `ilk-kez-gelenler-${START_DAY}-${latestDay.value ?? ""}.xlsx`
+  document.body.appendChild(link)
+  link.click()
+  document.body.removeChild(link)
+  URL.revokeObjectURL(url)
+}
 </script>
 
 <style scoped>
@@ -231,6 +319,30 @@ h2 {
   flex-wrap: wrap;
   gap: 8px;
   margin-bottom: 12px;
+}
+
+.head-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.sort-select {
+  padding: 5px 10px;
+  border-radius: 999px;
+  border: 1px solid #374151;
+  background: #020617;
+  color: #e5e7eb;
+  font-size: 0.8rem;
+}
+
+th.sortable {
+  cursor: pointer;
+  user-select: none;
+}
+
+th.sortable:hover {
+  color: #e5e7eb;
 }
 
 .chip {
