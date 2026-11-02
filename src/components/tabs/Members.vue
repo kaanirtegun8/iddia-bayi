@@ -257,6 +257,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue"
 import ExcelJS from "exceljs"
+import { localDateStr } from "../../utils/date"
 
 export type UserReport = {
   isActive: boolean
@@ -679,7 +680,7 @@ const downloadUsersExcel = async (rows: UserReport[], filename: string) => {
   URL.revokeObjectURL(url)
 }
 
-const getTodayStamp = () => new Date().toISOString().split("T")[0]
+const getTodayStamp = () => localDateStr()
 
 const downloadZeroTurnoverExcel = async () => {
   const filename = `sifir-ciro-uyeler-${getTodayStamp()}.xlsx`

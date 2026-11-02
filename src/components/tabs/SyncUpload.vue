@@ -236,6 +236,7 @@ import {
 } from "firebase/firestore"
 import ExcelJS from "exceljs"
 import { db } from "../../firebase"
+import { localDateStr } from "../../utils/date"
 
 type DailyUser = {
   memberId: number
@@ -252,7 +253,7 @@ type DailyUser = {
 }
 
 const rawJson = ref("")
-const todayStr = new Date().toISOString().slice(0, 10) // "YYYY-MM-DD"
+const todayStr = localDateStr() // "YYYY-MM-DD", yerel saate göre
 const dateKey = ref(todayStr)
 const isLoading = ref(false)
 const message = ref<null | { type: "success" | "error"; text: string }>(null)

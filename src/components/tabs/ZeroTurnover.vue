@@ -70,6 +70,7 @@
 import { computed } from "vue"
 import type { UserReport } from "./Members.vue"
 import ExcelJS from "exceljs"
+import { localDateStr } from "../../utils/date"
 
 const props = defineProps<{
   users: UserReport[]
@@ -176,7 +177,7 @@ const downloadZeroCsv = () => {
 
   const url = URL.createObjectURL(blob)
   const link = document.createElement("a")
-  const today = new Date().toISOString().split("T")[0]
+  const today = localDateStr()
 
   link.href = url
   link.download = `sifir-ciro-uyeler-${today}.csv`
@@ -267,7 +268,7 @@ const downloadTurnoverSegmentExcel = async () => {
 
   const url = URL.createObjectURL(blob)
   const link = document.createElement("a")
-  const today = new Date().toISOString().split("T")[0]
+  const today = localDateStr()
 
   link.href = url
   link.download = `ciro-raporu-renkli-${today}.xlsx`
