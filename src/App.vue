@@ -9,31 +9,27 @@
 
   <!-- APP -->
   <template v-else>
-    <div class="tabs-container">
+    <div class="tabs-container" :class="{ 'menu-open': menuOpen }">
+      <!-- Telefonda: aktif tabın adı + menü butonu -->
+      <button
+        class="mobile-bar"
+        type="button"
+        :aria-expanded="menuOpen"
+        @click="menuOpen = !menuOpen"
+      >
+        <span class="mobile-bar-title">{{ activeTabLabel }}</span>
+        <span class="mobile-bar-icon" aria-hidden="true">{{ menuOpen ? "✕" : "☰" }}</span>
+      </button>
+
       <div class="tabs">
-        <button class="tab-btn" :class="{ active: activeTab === 'members' }" @click="activeTab = 'members'">
-          Üyelerim
-        </button>
-        <button class="tab-btn" :class="{ active: activeTab === 'upload' }" @click="activeTab = 'upload'">
-          Dosya Ekleme
-        </button>
-        <button class="tab-btn" :class="{ active: activeTab === 'analysis' }" @click="activeTab = 'analysis'">
-          Analiz
-        </button>
-        <button class="tab-btn special-tracking-tab" :class="{ active: activeTab === 'specialTracking' }" @click="activeTab = 'specialTracking'">
-          Özel Oyuncu Takibi
-        </button>
-        <button class="tab-btn" :class="{ active: activeTab === 'sync' }" @click="activeTab = 'sync'">
-          Firebase Yükleme
-        </button>
-        <button class="tab-btn" :class="{ active: activeTab === 'whatsapp' }" @click="activeTab = 'whatsapp'">
-          WhatsApp Karşılaştırma
-        </button>
-        <button class="tab-btn" :class="{ active: activeTab === 'firstTime' }" @click="activeTab = 'firstTime'">
-          İlk Kez Gelenler
-        </button>
-        <button class="tab-btn" :class="{ active: activeTab === 'onurDemir' }" @click="activeTab = 'onurDemir'">
-          Onur Demir'den Gelenler
+        <button
+          v-for="tab in TABS"
+          :key="tab.key"
+          class="tab-btn"
+          :class="[{ active: activeTab === tab.key }, tab.className]"
+          @click="selectTab(tab.key)"
+        >
+          {{ tab.label }}
         </button>
 
         <!-- Çıkış -->
@@ -42,6 +38,7 @@
         </button>
       </div>
     </div>
+    <div v-if="menuOpen" class="menu-backdrop" @click="menuOpen = false" />
 
     <div class="page-wrapper">
       <div v-if="activeTab === 'members'">
@@ -74,8 +71,10 @@
         </div>
 
         <div v-else class="members-layout">
-          <Members :users="users" @select-user="selectedUser = $event" />
-          <MemberDetail :user="selectedUser" />
+          <Members :users="users" @select-user="handleSelectUser" />
+          <div ref="memberDetailEl" class="member-detail-anchor">
+            <MemberDetail :user="selectedUser" />
+          </div>
         </div>
       </div>
 
@@ -95,7 +94,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from "vue"
+import { ref, computed, nextTick, onMounted, onUnmounted } from "vue"
 import { onAuthStateChanged, signOut, type User } from "firebase/auth"
 import { auth } from "./firebase"
 
@@ -126,7 +125,46 @@ const users = ref<UserReport[]>([])
 const isLoadingUsers = ref(true)
 const usersError = ref<string | null>(null)
 const selectedUser = ref<UserReport | null>(null)
-const activeTab = ref<"members" | "upload" | "analysis" | "specialTracking" | "sync" | "whatsapp" | "firstTime" | "onurDemir">("members")
+type TabKey =
+  | "members"
+  | "upload"
+  | "analysis"
+  | "specialTracking"
+  | "sync"
+  | "whatsapp"
+  | "firstTime"
+  | "onurDemir"
+
+const TABS: { key: TabKey; label: string; className?: string }[] = [
+  { key: "members", label: "Üyelerim" },
+  { key: "upload", label: "Dosya Ekleme" },
+  { key: "analysis", label: "Analiz" },
+  { key: "specialTracking", label: "Özel Oyuncu Takibi", className: "special-tracking-tab" },
+  { key: "sync", label: "Firebase Yükleme" },
+  { key: "whatsapp", label: "WhatsApp Karşılaştırma" },
+  { key: "firstTime", label: "İlk Kez Gelenler" },
+  { key: "onurDemir", label: "Onur Demir'den Gelenler" },
+]
+
+const activeTab = ref<TabKey>("members")
+const menuOpen = ref(false)
+const activeTabLabel = computed(() => TABS.find((t) => t.key === activeTab.value)?.label ?? "")
+
+const selectTab = (key: TabKey) => {
+  activeTab.value = key
+  menuOpen.value = false
+  window.scrollTo({ top: 0 })
+}
+
+// Telefonda detay kartı uzun listenin altında kalıyor; seçince oraya kaydır.
+const memberDetailEl = ref<HTMLElement | null>(null)
+const handleSelectUser = async (user: UserReport) => {
+  selectedUser.value = user
+  if (window.matchMedia("(max-width: 1024px)").matches) {
+    await nextTick()
+    memberDetailEl.value?.scrollIntoView({ behavior: "smooth", block: "start" })
+  }
+}
 const availableDays = ref<string[]>([])
 const selectedDay = ref("")
 const isLoadingDays = ref(false)
@@ -382,6 +420,109 @@ onUnmounted(() => {
   to {
     opacity: 1;
     transform: translateY(0px);
+  }
+}
+
+.member-detail-anchor {
+  min-width: 0;
+  scroll-margin-top: 80px;
+}
+
+/* Masaüstünde gizli; telefonda tab bar yerine geçer */
+.mobile-bar,
+.menu-backdrop {
+  display: none;
+}
+
+/* TELEFON / DAR EKRAN: tek satır üst bar + açılır menü */
+@media (max-width: 900px) {
+  .tabs-container {
+    top: 0;
+    padding: 8px 12px;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 6px;
+  }
+
+  .mobile-bar {
+    pointer-events: auto;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    width: 100%;
+    height: 48px;
+    padding: 0 16px;
+    background: rgba(15, 23, 42, 0.97);
+    border: 1px solid rgba(148, 163, 184, 0.4);
+    border-radius: 14px;
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    color: #f8fafc;
+    font-size: 1rem;
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .mobile-bar-title {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .mobile-bar-icon {
+    font-size: 1.25rem;
+    line-height: 1;
+    color: #c7d2fe;
+  }
+
+  .tabs {
+    display: none;
+    width: 100%;
+    height: auto;
+    max-height: calc(100dvh - 80px);
+    overflow-y: auto;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 2px;
+    padding: 6px;
+    border-radius: 14px;
+  }
+
+  .menu-open .tabs {
+    display: flex;
+  }
+
+  .tab-btn {
+    flex: none;
+    text-align: left;
+    padding: 13px 14px;
+    border-radius: 10px;
+    font-size: 1rem;
+  }
+
+  .tab-btn.logout {
+    flex: none;
+    margin-top: 4px;
+    border-top: 1px solid rgba(148, 163, 184, 0.2);
+    border-radius: 0 0 10px 10px;
+    color: #fca5a5;
+  }
+
+  .menu-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    z-index: 90;
+    background: rgba(2, 6, 23, 0.6);
+  }
+
+  .page-wrapper {
+    padding: 72px 12px 16px;
+  }
+
+  .members-toolbar {
+    padding: 8px 10px;
   }
 }
 </style>

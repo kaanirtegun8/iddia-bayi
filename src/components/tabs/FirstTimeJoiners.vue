@@ -439,4 +439,41 @@ th {
     transform: translateY(0px);
   }
 }
+
+/* TELEFON */
+@media (max-width: 640px) {
+  .card {
+    padding: 14px 12px;
+  }
+
+  .card-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .head-actions {
+    flex-wrap: wrap;
+  }
+
+  .head-actions > * {
+    flex: 1 1 auto;
+  }
+
+  .sort-select {
+    flex-basis: 100%;
+  }
+
+  /* Gün etiketleri alt alta ekranı kaplamasın: tek satır, yana kaydırılır */
+  .day-chips {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    padding-bottom: 4px;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .chip {
+    flex-shrink: 0;
+    white-space: nowrap;
+  }
+}
 </style>

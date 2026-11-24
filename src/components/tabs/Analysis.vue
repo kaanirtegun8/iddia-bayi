@@ -483,7 +483,7 @@ onMounted(() => {
   margin-top: 6px;
   border-radius: 12px;
   border: 1px solid #1f2937;
-  overflow: hidden;
+  overflow-x: auto;
 }
 
 table {
@@ -545,5 +545,22 @@ tbody tr:hover {
   padding: 1px 4px;
   border-radius: 4px;
   font-size: 0.8rem;
+}
+
+/* TELEFON */
+@media (max-width: 640px) {
+  .field select {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .buttons-col {
+    justify-content: stretch;
+  }
+
+  .buttons-col .btn {
+    flex: 1 1 100%;
+    white-space: normal;
+  }
 }
 </style>

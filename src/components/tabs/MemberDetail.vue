@@ -471,7 +471,7 @@ h2 {
 
 .history-table-container {
   max-height: 280px;
-  overflow-y: auto;
+  overflow: auto;
   border-radius: 10px;
   border: 1px solid #1f2937;
 }
@@ -546,6 +546,31 @@ h2 {
   to {
     opacity: 1;
     transform: translateY(0px);
+  }
+}
+
+/* TELEFON */
+@media (max-width: 640px) {
+  .header {
+    flex-direction: column;
+  }
+
+  .history-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .history-btn {
+    width: 100%;
+    padding-top: 10px;
+    padding-bottom: 10px;
+  }
+
+  .id-block {
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
   }
 }
 </style>

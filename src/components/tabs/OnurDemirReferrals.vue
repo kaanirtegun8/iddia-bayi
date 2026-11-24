@@ -554,4 +554,40 @@ th {
     transform: translateY(0px);
   }
 }
+
+/* TELEFON */
+@media (max-width: 640px) {
+  .card {
+    padding: 14px 12px;
+  }
+
+  .card-head {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .head-actions {
+    flex-wrap: wrap;
+  }
+
+  .head-actions > * {
+    flex: 1 1 auto;
+  }
+
+  .field,
+  .field-narrow {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+
+  .add-btn {
+    flex: 1 1 100%;
+    padding: 12px;
+  }
+
+  .search {
+    flex: 1 1 100%;
+    min-width: 0;
+  }
+}
 </style>

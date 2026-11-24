@@ -1144,4 +1144,96 @@ th.sortable.active {
 .page-info strong {
   font-weight: 600;
 }
+
+/* TELEFON */
+@media (max-width: 640px) {
+  .user-table-wrapper {
+    padding: 1rem 0.85rem;
+  }
+
+  .table-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .table-header h2 {
+    margin: 0;
+  }
+
+  .table-controls {
+    align-items: stretch;
+  }
+
+  .table-controls .total {
+    flex: 1 1 100%;
+  }
+
+  .search-wrapper,
+  .table-controls > .filter-btn {
+    flex: 1 1 100%;
+  }
+
+  .search-wrapper input {
+    width: 100%;
+    min-width: 0;
+    padding: 0.5rem 0.9rem;
+  }
+
+  .advanced-controls {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    flex: 1 1 100%;
+  }
+
+  .advanced-controls .chip-select,
+  .advanced-controls .filter-btn {
+    width: 100%;
+    min-width: 0;
+    justify-content: center;
+  }
+
+  .export-controls {
+    flex-direction: column;
+    align-items: stretch;
+    flex: 1 1 100%;
+  }
+
+  .filter-btn {
+    padding: 0.5rem 0.8rem;
+    justify-content: center;
+  }
+
+  .inactive-export-card {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .inactive-export-copy {
+    min-width: 0;
+    margin-right: 0;
+  }
+
+  .cutoff-picker,
+  .balance-limit-picker {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.3rem;
+  }
+
+  .cutoff-picker select {
+    min-width: 0;
+    width: 100%;
+  }
+
+  .balance-limit-input input {
+    flex: 1;
+    width: auto;
+    min-width: 0;
+  }
+
+  .pagination {
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+}
 </style>

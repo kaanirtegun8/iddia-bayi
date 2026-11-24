@@ -1015,7 +1015,7 @@ h2 {
 
 .compare-fields .field {
   flex: 1;
-  min-width: 180px;
+  min-width: min(180px, 100%);
 }
 
 .compare-buttons {
@@ -1069,8 +1069,14 @@ h2 {
 
 .tables {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr));
   gap: 12px;
+}
+
+/* Grid hücresi tablonun genişliğine göre büyüyüp kartı taşırmasın;
+   tablo kendi kutusunda yana kaysın. */
+.table-block {
+  min-width: 0;
 }
 
 .table-block h3 {
@@ -1080,7 +1086,7 @@ h2 {
 
 .table-scroll {
   max-height: 400px;
-  overflow-y: auto;
+  overflow: auto;
   border-radius: 12px;
   border: 1px solid rgba(51, 65, 85, 0.8);
 }

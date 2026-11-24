@@ -655,7 +655,7 @@ h3 {
 
 .history .field {
   flex: 1;
-  min-width: 240px;
+  min-width: min(240px, 100%);
 }
 
 .message {
@@ -690,7 +690,7 @@ h3 {
 
 .result-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr));
   gap: 16px;
 }
 
@@ -783,6 +783,18 @@ th {
   to {
     opacity: 1;
     transform: translateY(0px);
+  }
+}
+
+/* TELEFON */
+@media (max-width: 640px) {
+  .block-head {
+    flex-wrap: wrap;
+  }
+
+  .head-actions {
+    flex-shrink: 1;
+    flex-wrap: wrap;
   }
 }
 </style>

@@ -43,3 +43,20 @@ body {
   width: 100%;
   min-height: 100%;
 }
+/* TELEFON: iOS Safari 16px'ten küçük yazılı kutulara dokununca sayfayı
+   otomatik büyütüyor ve geri küçültmüyor. Kutuları 16px yaparak bunu engelle. */
+@media (max-width: 900px) {
+  input,
+  select,
+  textarea {
+    font-size: 16px !important;
+  }
+
+  /* Uzun kelimeler/tarihler ekranı taşırmasın */
+  h1,
+  h2,
+  h3,
+  p {
+    overflow-wrap: anywhere;
+  }
+}
