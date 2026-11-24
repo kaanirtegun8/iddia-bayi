@@ -222,7 +222,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted } from "vue"
+import { ref, onMounted, onUnmounted } from "vue"
 import {
   collection,
   doc,
@@ -253,9 +253,20 @@ type DailyUser = {
 }
 
 const rawJson = ref("")
-const todayStr = localDateStr() // "YYYY-MM-DD", yerel saate göre
-const dateKey = ref(todayStr)
+const todayStr = ref(localDateStr()) // "YYYY-MM-DD", yerel saate göre
+const dateKey = ref(todayStr.value)
 const isLoading = ref(false)
+
+// Sayfa gece yarısını geçerek açık kalırsa tarih dünde kalıyordu ve
+// yeni günün datası yanlışlıkla bir önceki güne yükleniyordu.
+// Tarih elle değiştirilmediyse bugünle birlikte ilerler.
+const syncTodayDate = () => {
+  const now = localDateStr()
+  if (now === todayStr.value) return
+  if (dateKey.value.trim() === todayStr.value) dateKey.value = now
+  todayStr.value = now
+}
+let todayTimer: ReturnType<typeof setInterval> | undefined
 const message = ref<null | { type: "success" | "error"; text: string }>(null)
 
 const MAX_BATCH = 400
@@ -263,9 +274,18 @@ const MAX_BATCH = 400
 // --- GÜNLÜK YÜKLEME ---
 const handleUpload = async () => {
   message.value = null
+  syncTodayDate()
 
   if (!dateKey.value.trim()) {
     message.value = { type: "error", text: "Tarih alanı boş olamaz." }
+    return
+  }
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(dateKey.value.trim())) {
+    message.value = {
+      type: "error",
+      text: "Tarih YYYY-MM-DD biçiminde olmalı (örn. " + todayStr.value + ").",
+    }
     return
   }
 
@@ -289,10 +309,55 @@ const handleUpload = async () => {
     return
   }
 
+  // Yanlış güne yüklemeye karşı: bugünden farklı bir tarihe ya da zaten
+  // datası olan bir güne yüklerken (eski liste silinip değiştirilir) onay iste.
+  const targetDate = dateKey.value.trim()
+  const warnings: string[] = []
+
+  if (targetDate !== todayStr.value) {
+    warnings.push(
+      `Seçili tarih ${targetDate}, ama bugün ${todayStr.value}.`,
+    )
+  }
+
+  try {
+    const existing = await getDoc(doc(db, "dailyUsers", targetDate))
+    if (existing.exists()) {
+      const data = existing.data()
+      const uploadedAt = data.createdAt?.toDate?.()?.toLocaleString("tr-TR")
+      warnings.push(
+        `${targetDate} gününde zaten ${data.totalUsers ?? "?"} kullanıcı var` +
+          (uploadedAt ? ` (${uploadedAt} tarihinde yüklenmiş)` : "") +
+          ". Devam edersen bu günün listesi tamamen değiştirilecek.",
+      )
+    }
+  } catch (err: any) {
+    console.error(err)
+    message.value = {
+      type: "error",
+      text:
+        "Günün mevcut datası kontrol edilemedi, yükleme yapılmadı: " +
+        (err?.message ?? String(err)),
+    }
+    return
+  }
+
+  if (
+    warnings.length &&
+    !window.confirm(
+      "⚠️ DİKKAT\n\n" +
+        warnings.join("\n\n") +
+        `\n\n${users.length} kullanıcı ${targetDate} tarihine yüklensin mi?`,
+    )
+  ) {
+    message.value = { type: "error", text: "Yükleme iptal edildi." }
+    return
+  }
+
   isLoading.value = true
 
   try {
-    const trimmedDate = dateKey.value.trim()
+    const trimmedDate = targetDate
 
     // 1) Gün metadata doc
     const parentRef = doc(db, "dailyUsers", trimmedDate)
@@ -458,7 +523,16 @@ const loadAvailableDays = async () => {
 }
 
 onMounted(async () => {
+  todayTimer = setInterval(syncTodayDate, 60_000)
+  document.addEventListener("visibilitychange", syncTodayDate)
+  window.addEventListener("focus", syncTodayDate)
   await loadAvailableDays()
+})
+
+onUnmounted(() => {
+  clearInterval(todayTimer)
+  document.removeEventListener("visibilitychange", syncTodayDate)
+  window.removeEventListener("focus", syncTodayDate)
 })
 
 // Gün A'nın tüm kullanıcılarını getir
